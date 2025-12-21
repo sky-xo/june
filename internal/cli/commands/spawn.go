@@ -55,6 +55,10 @@ func runSpawn(db *sql.DB, runner ottoexec.Runner, agentType, task, files, contex
 	// Generate agent ID from task slug
 	agentID := generateAgentID(db, task)
 
+	// TODO: For Codex agents, we should capture the actual thread_id from
+	// `codex exec --json` output rather than using our own UUID. For V0,
+	// we use our own UUID which means prompt/attach may not work correctly
+	// with Codex until this is fixed.
 	// Generate session ID
 	sessionID := uuid.New().String()
 

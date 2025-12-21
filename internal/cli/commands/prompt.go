@@ -59,8 +59,8 @@ func runPrompt(db *sql.DB, runner ottoexec.Runner, agentID, message string) erro
 	if agent.Type == "claude" {
 		cmdArgs = []string{"claude", "--resume", sessionID, "-p", message}
 	} else if agent.Type == "codex" {
-		// Codex doesn't fully support resume, just run new
-		cmdArgs = []string{"codex", "exec", message}
+		// Attempt Codex resume (support may be limited)
+		cmdArgs = []string{"codex", "exec", "resume", sessionID, message}
 	} else {
 		return fmt.Errorf("unsupported agent type %q", agent.Type)
 	}
