@@ -282,19 +282,21 @@ Additional context: <context>
 
 Complete this task autonomously if possible.
 
-If you need to escalate (questions, decisions, blockers), use the otto CLI:
+If you need to escalate (questions, decisions, blockers), use the otto CLI.
 
-# Ask a question (blocks until you get a response)
-otto ask "Should auth tokens expire after 24h or 7d?"
+IMPORTANT: Always include your agent ID in every command.
+
+# Ask a question (waits for response)
+otto ask --agent <agent-id> "Should auth tokens expire after 24h or 7d?"
 
 # Ask a question that requires human input
-otto ask --human "What should the error message say?"
+otto ask --agent <agent-id> --human "What should the error message say?"
 
 # Send a status update (non-blocking)
-otto update "Finished implementing login, starting on logout"
+otto update --agent <agent-id> "Finished implementing login, starting on logout"
 
 # Mark task as complete
-otto complete "Auth system implemented. PR ready for review."
+otto complete --agent <agent-id> "Auth system implemented. PR ready for review."
 
 ## Escalation Guidelines
 
