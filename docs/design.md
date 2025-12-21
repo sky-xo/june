@@ -40,7 +40,7 @@ Otto is a CLI tool that enables a single Claude Code session to orchestrate mult
 │         │                  │                   │           │
 │         └──────────────────┴───────────────────┘           │
 │                            │                                │
-│                   ~/.otto/ (file-based messaging)           │
+│                   ~/.otto/ (SQLite messaging)               │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -97,46 +97,67 @@ otto spawn --in mobile-rewrite codex "sync iOS and Android"
 # → orchestrator: mobile-rewrite (custom name)
 ```
 
-## File Structure
+## Storage
+
+### Directory Structure
 
 ```
 ~/.otto/
   orchestrators/
     <project>/
       <branch>/
-        state.json          # orchestrator state
+        otto.db             # SQLite database (agents, messages, state)
         agents/
           <agent-id>/
-            config.json     # agent type, task, status
             context.md      # handoff context from orchestrator
             output.log      # captured output (optional)
-        messages/
-          inbox/            # messages TO orchestrator
-            <timestamp>-<from>.json
-          agents/
-            <agent-id>/     # messages TO this agent
-              <timestamp>-<from>.json
 ```
 
-### Message Format
+### Database Schema
 
-```json
-{
-  "id": "msg-abc123",
-  "from": "agent-def",
-  "to": "orchestrator",
-  "type": "question",
-  "content": "Should auth tokens expire after 24h or 7d?",
-  "timestamp": "2025-01-15T10:30:00Z",
-  "requires_human": false
-}
+```sql
+-- Agents table
+CREATE TABLE agents (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,           -- 'claude' or 'codex'
+  task TEXT NOT NULL,
+  status TEXT NOT NULL,         -- 'working', 'waiting', 'done', 'failed'
+  session_id TEXT,              -- claude/codex session ID for resume
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Messages table
+CREATE TABLE messages (
+  id TEXT PRIMARY KEY,
+  from_id TEXT NOT NULL,        -- agent ID or 'orchestrator' or 'human'
+  to_id TEXT NOT NULL,          -- agent ID or 'orchestrator'
+  type TEXT NOT NULL,           -- 'question', 'update', 'handoff', 'complete'
+  content TEXT NOT NULL,
+  requires_human BOOLEAN DEFAULT FALSE,
+  read BOOLEAN DEFAULT FALSE,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes for common queries
+CREATE INDEX idx_messages_to_unread ON messages(to_id, read);
+CREATE INDEX idx_agents_status ON agents(status);
 ```
 
-Message types:
+### Message Types
+
 - `question` - agent needs input
 - `update` - status update, no response needed
 - `handoff` - passing work to another agent
 - `complete` - task finished, here's the result
+
+### Why SQLite?
+
+- **Queryable:** "show unread messages", "messages from agent-x", "agents that are waiting"
+- **Atomic:** No race conditions on concurrent writes
+- **Single file:** One `otto.db` per orchestrator, easy to backup
+- **No file proliferation:** Avoids hundreds of small JSON files
+- **Debuggable:** `sqlite3 otto.db "SELECT * FROM messages"` or `otto messages --debug`
 
 ## CLI Commands
 
@@ -253,6 +274,7 @@ When otto spawns an agent, it includes instructions for messaging:
 ```markdown
 You are an agent working on: <task>
 
+Your agent ID: <agent-id>
 Relevant files: <files>
 Additional context: <context>
 
@@ -260,29 +282,30 @@ Additional context: <context>
 
 Complete this task autonomously if possible.
 
-If you need to escalate (questions, decisions, blockers), write to:
-  ~/.otto/orchestrators/<orch>/messages/inbox/
+If you need to escalate (questions, decisions, blockers), use the otto CLI:
 
-Message format:
-{
-  "from": "<your-agent-id>",
-  "type": "question",
-  "content": "your question here",
-  "requires_human": true/false
-}
+# Ask a question (blocks until you get a response)
+otto ask "Should auth tokens expire after 24h or 7d?"
 
-When complete, write a "complete" message with your summary.
+# Ask a question that requires human input
+otto ask --human "What should the error message say?"
+
+# Send a status update (non-blocking)
+otto update "Finished implementing login, starting on logout"
+
+# Mark task as complete
+otto complete "Auth system implemented. PR ready for review."
 
 ## Escalation Guidelines
 
-ALWAYS escalate:
+ALWAYS escalate with --human:
 - UX decisions
 - Major architectural choices
 - External service selection
 - Anything involving cost/billing
 - Security-sensitive decisions
 
-CAN answer yourself (if you have context):
+CAN ask without --human (orchestrator may answer):
 - Code style questions
 - Where to find files
 - Testing approach
@@ -365,12 +388,13 @@ Orchestrator: "Both agents done. Spawning review agent."
 
 ### Phase 1: MVP
 
+- [ ] SQLite database setup (agents, messages tables)
 - [ ] `otto spawn` - spawn Claude Code and Codex agents
 - [ ] `otto status` - list agents and their states
 - [ ] `otto messages` - check for pending messages
 - [ ] `otto send` - send message to agent
 - [ ] `otto attach` - print resume command
-- [ ] File-based messaging in `~/.otto/`
+- [ ] Agent commands: `otto ask`, `otto update`, `otto complete`
 - [ ] Auto-detect project/branch scoping
 - [ ] Agent prompt templates with escalation instructions
 
@@ -404,7 +428,7 @@ npx otto-agent spawn ...
 
 - **Language:** TypeScript (Node.js)
 - **CLI framework:** Commander or Yargs
-- **File watching:** chokidar (for future real-time features)
+- **Database:** better-sqlite3 (synchronous, fast, no native dependencies on most platforms)
 - **Process management:** child_process, with output capture
 
 ### Session Management
@@ -428,6 +452,6 @@ Otto tracks the mapping: `agent-id → session-id` in `config.json`.
 
 ## Summary
 
-Otto is a lightweight CLI that turns Claude Code into a multi-agent orchestrator. It leverages the native session resume capabilities of both Claude Code and Codex to enable persistent, interruptible agents that can communicate through a simple file-based message bus.
+Otto is a lightweight CLI that turns Claude Code into a multi-agent orchestrator. It leverages the native session resume capabilities of both Claude Code and Codex to enable persistent, interruptible agents that can communicate through a SQLite-backed message bus.
 
-The key insight: we don't need to build complex infrastructure. Claude Code and Codex already have the primitives we need (session persistence, non-interactive mode). Otto just wires them together.
+The key insight: we don't need to build complex infrastructure. Claude Code and Codex already have the primitives we need (session persistence, non-interactive mode). Otto just wires them together with a simple, queryable database.
