@@ -104,3 +104,45 @@ func readByContains(readByJSON, reader string) bool {
 	}
 	return false
 }
+
+func MarkMessagesRead(db *sql.DB, messageIDs []string, readerID string) error {
+	for _, id := range messageIDs {
+		// Get current read_by
+		var readByJSON string
+		err := db.QueryRow(`SELECT read_by FROM messages WHERE id = ?`, id).Scan(&readByJSON)
+		if err != nil {
+			return err
+		}
+
+		// Unmarshal current readers
+		var readers []string
+		if err := json.Unmarshal([]byte(readByJSON), &readers); err != nil {
+			return err
+		}
+
+		// Check if already present
+		found := false
+		for _, r := range readers {
+			if r == readerID {
+				found = true
+				break
+			}
+		}
+
+		// Append if not present
+		if !found {
+			readers = append(readers, readerID)
+			newReadByJSON, err := json.Marshal(readers)
+			if err != nil {
+				return err
+			}
+
+			// Update row
+			_, err = db.Exec(`UPDATE messages SET read_by = ? WHERE id = ?`, string(newReadByJSON), id)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}

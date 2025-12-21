@@ -15,6 +15,8 @@ func Execute() {
 	rootCmd.AddCommand(commands.NewSayCmd())
 	rootCmd.AddCommand(commands.NewAskCmd())
 	rootCmd.AddCommand(commands.NewCompleteCmd())
+	rootCmd.AddCommand(commands.NewMessagesCmd())
+	rootCmd.AddCommand(commands.NewStatusCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
