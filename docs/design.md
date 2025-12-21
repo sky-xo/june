@@ -324,10 +324,12 @@ my-app/feature-auth:
 View the main channel or check for messages:
 
 ```bash
-otto messages            # show recent main channel messages
-otto messages --unread   # only unread messages mentioning you
-otto messages --dm       # show DMs
-otto messages --all      # all channels
+otto messages              # unread messages (default)
+otto messages --all        # all messages
+otto messages --last 20    # last 20 messages
+otto messages --from agent-abc  # from specific agent
+otto messages --dm         # show DMs
+otto messages --questions  # only questions needing answers
 ```
 
 Output:
