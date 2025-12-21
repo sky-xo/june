@@ -123,6 +123,8 @@ CREATE TABLE agents (
   task TEXT NOT NULL,
   status TEXT NOT NULL,         -- 'working', 'waiting', 'done', 'failed'
   session_id TEXT,              -- claude/codex session ID for resume
+  worktree_path TEXT,           -- path to worktree if using --worktree
+  branch_name TEXT,             -- git branch name
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -212,7 +214,41 @@ otto spawn codex "implement OAuth login flow"
 otto spawn --in <orchestrator> codex "task"  # specify orchestrator
 otto spawn --files src/auth/ codex "task"    # hint relevant files
 otto spawn --context "use Redis for sessions" codex "task"  # extra context
+otto spawn --worktree oauth-backend codex "task"  # work in isolated worktree
 ```
+
+#### Worktree Isolation (--worktree)
+
+When multiple agents work in parallel on code changes, they need isolated workspaces.
+The `--worktree` flag creates a git worktree for the agent:
+
+```bash
+otto spawn codex "Implement backend" --worktree backend
+otto spawn codex "Implement frontend" --worktree frontend
+```
+
+This creates:
+```
+my-project/
+  .worktrees/           # gitignored
+    backend/            # agent 1's isolated workspace
+    frontend/           # agent 2's isolated workspace
+  src/
+  ...
+```
+
+**What otto does:**
+1. Ensures `.worktrees/` exists and is in `.gitignore`
+2. Creates worktree: `git worktree add .worktrees/<name> -b feature/<name>`
+3. Copies env files if project has conventions (detects .env, .dev.vars, etc.)
+4. Spawns agent with cwd set to the worktree
+
+**On agent completion:**
+- Agent uses `finishing-a-development-branch` skill
+- Merges to main or creates PR
+- Otto cleans up: `git worktree remove .worktrees/<name>`
+
+**Integrates with superpowers:** Follows same conventions as `superpowers:using-git-worktrees` skill.
 
 ### otto status
 
