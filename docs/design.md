@@ -131,24 +131,60 @@ CREATE TABLE agents (
 CREATE TABLE messages (
   id TEXT PRIMARY KEY,
   from_id TEXT NOT NULL,        -- agent ID or 'orchestrator' or 'human'
-  to_id TEXT NOT NULL,          -- agent ID or 'orchestrator'
-  type TEXT NOT NULL,           -- 'question', 'update', 'handoff', 'complete'
+  channel TEXT DEFAULT 'main',  -- 'main' or 'dm:<agent1>:<agent2>'
+  type TEXT NOT NULL,           -- 'say', 'question', 'update', 'complete'
   content TEXT NOT NULL,
+  mentions TEXT,                -- JSON array: ["agent-def", "orchestrator"]
   requires_human BOOLEAN DEFAULT FALSE,
-  read BOOLEAN DEFAULT FALSE,
+  read_by TEXT DEFAULT '[]',    -- JSON array of agent IDs who have read this
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Indexes for common queries
-CREATE INDEX idx_messages_to_unread ON messages(to_id, read);
+CREATE INDEX idx_messages_channel ON messages(channel, created_at);
 CREATE INDEX idx_agents_status ON agents(status);
 ```
 
+### Communication Model
+
+Agents communicate via a **group chat** model (like Slack/Discord):
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ #main (everyone sees)                                   │
+│                                                         │
+│ [agent-abc] Finished auth backend. @agent-def ready     │
+│             for frontend integration.                   │
+│                                                         │
+│ [agent-def] Got it. What's the token format?            │
+│                                                         │
+│ [agent-abc] JWT, expires in 7 days. See src/auth/jwt.ts │
+│                                                         │
+│ [orchestrator] @agent-ghi start review when ready.      │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Main channel (#main):**
+- All messages visible to all agents and orchestrator
+- @mentions direct attention without limiting visibility
+- Default for most communication
+
+**DMs (private):**
+- For quick private coordination between two agents
+- Still logged in the database (for debugging)
+- Discouraged for important decisions
+
+**Why this model:**
+- All agents have shared context
+- Orchestrator/human has full visibility
+- Natural mental model everyone understands
+- @mentions make it clear who should respond
+
 ### Message Types
 
-- `question` - agent needs input
+- `say` - general message to the channel
+- `question` - needs a response (blocks until answered)
 - `update` - status update, no response needed
-- `handoff` - passing work to another agent
 - `complete` - task finished, here's the result
 
 ### Why SQLite?
@@ -198,26 +234,49 @@ my-app/feature-auth:
 
 ### otto messages
 
-Check for pending messages:
+View the main channel or check for messages:
 
 ```bash
-otto messages            # messages for current orchestrator
-otto messages --all      # messages across all orchestrators
+otto messages            # show recent main channel messages
+otto messages --unread   # only unread messages mentioning you
+otto messages --dm       # show DMs
+otto messages --all      # all channels
 ```
 
 Output:
 ```
-[agent-def] QUESTION: Should tokens expire after 24h or 7d?
-[agent-ghi] COMPLETE: Tests written. 15 passing, 0 failing.
+#main:
+  [agent-abc] Finished auth backend. @agent-def ready for you
+  [agent-def] QUESTION: What's the token format?
+  [agent-abc] JWT, 7 days. See src/auth/jwt.ts
+  [orchestrator] @agent-ghi start review when ready
 ```
 
-### otto send
+### otto say
 
-Send a message to an agent:
+Post a message to the main channel:
 
 ```bash
-otto send <agent-id> "<message>"
-otto send agent-def "Use 7 day expiration"
+otto say --agent <agent-id> "message"
+otto say --agent agent-abc "Finished auth backend, @agent-def ready for frontend"
+```
+
+### otto dm
+
+Send a direct message to another agent:
+
+```bash
+otto dm --agent <agent-id> --to <target-id> "message"
+otto dm --agent agent-abc --to agent-def "Quick q about the API format"
+```
+
+### otto reply
+
+Reply to a question (used by orchestrator or other agents):
+
+```bash
+otto reply <message-id> "response"
+otto reply msg-123 "Use 7 day expiration"
 ```
 
 ### otto attach
@@ -278,40 +337,55 @@ Your agent ID: <agent-id>
 Relevant files: <files>
 Additional context: <context>
 
-## Working Style
+## Communication
 
-Complete this task autonomously if possible.
+You're part of a team. All agents share a main channel (#main) where everyone
+can see messages. Use this for most communication.
 
-If you need to escalate (questions, decisions, blockers), use the otto CLI.
+IMPORTANT: Always include your agent ID (--agent <agent-id>) in every command.
 
-IMPORTANT: Always include your agent ID in every command.
+### Check for messages (do this periodically!)
+otto messages --unread --agent <agent-id>
 
-# Ask a question (waits for response)
+### Post to main channel (everyone sees)
+otto say --agent <agent-id> "Finished auth backend, @agent-def ready for frontend"
+
+### Ask a question (waits for response)
 otto ask --agent <agent-id> "Should auth tokens expire after 24h or 7d?"
 
-# Ask a question that requires human input
+### Ask a question requiring human input
 otto ask --agent <agent-id> --human "What should the error message say?"
 
-# Send a status update (non-blocking)
-otto update --agent <agent-id> "Finished implementing login, starting on logout"
+### Send a status update
+otto update --agent <agent-id> "Starting on logout flow"
 
-# Mark task as complete
-otto complete --agent <agent-id> "Auth system implemented. PR ready for review."
+### DM another agent (use sparingly - prefer main channel)
+otto dm --agent <agent-id> --to <other-agent> "Quick q about API format"
 
-## Escalation Guidelines
+### Mark task as complete
+otto complete --agent <agent-id> "Auth system implemented. PR ready."
 
-ALWAYS escalate with --human:
+## Guidelines
+
+**Check messages regularly** - other agents or the orchestrator may have
+questions or updates for you.
+
+**Use @mentions** - when you need a specific agent's attention, @mention them.
+
+**Prefer main channel** - keep most communication visible so everyone has context.
+
+**Escalate with --human when:**
 - UX decisions
 - Major architectural choices
 - External service selection
-- Anything involving cost/billing
+- Cost/billing decisions
 - Security-sensitive decisions
 
-CAN ask without --human (orchestrator may answer):
+**Can ask without --human:**
 - Code style questions
 - Where to find files
 - Testing approach
-- Implementation details within given constraints
+- Implementation details
 ```
 
 ### Escalation Flow
