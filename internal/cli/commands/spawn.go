@@ -90,7 +90,16 @@ func runSpawn(db *sql.DB, runner ottoexec.Runner, agentType, task, files, contex
 
 	// Run the command (keep agent record even if it fails)
 	if err := runner.Run(cmdArgs[0], cmdArgs[1:]...); err != nil {
+		// Mark agent as failed when process exits with error
+		_ = repo.UpdateAgentStatus(db, agentID, "failed")
 		return fmt.Errorf("spawn %s: %w", agentType, err)
+	}
+
+	// Mark agent as done when process exits successfully
+	// (unless agent already marked itself via otto complete)
+	agent, getErr := repo.GetAgent(db, agentID)
+	if getErr == nil && agent.Status == "working" {
+		_ = repo.UpdateAgentStatus(db, agentID, "done")
 	}
 
 	return nil
