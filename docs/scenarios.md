@@ -54,8 +54,8 @@ This document explores how otto would be used in real-world scenarios, testing o
 │                                                                     │
 │ [human] Use passport.js with the Google and GitHub strategies       │
 │                                                                     │
-│ [orchestrator] → otto reply msg-123 "Use passport.js with Google    │
-│                  and GitHub strategies"                             │
+│ [orchestrator] → otto prompt agent-backend "Use passport.js with    │
+│                  Google and GitHub strategies"                      │
 │                                                                     │
 │ [agent-backend] Got it. Continuing with passport.js.                │
 │                                                                     │
@@ -84,7 +84,7 @@ This document explores how otto would be used in real-world scenarios, testing o
 │ [orchestrator] @agent-backend - reviewer found CSRF issue.          │
 │                Can you fix?                                         │
 │                                                                     │
-│ [agent-backend] On it. → otto say --agent agent-backend "Fixed      │
+│ [agent-backend] On it. → otto say --id agent-backend "Fixed         │
 │                 CSRF, added token to callback"                      │
 │                                                                     │
 │ [agent-review] Re-reviewed. ✓ CSRF fixed. Approved.                 │
@@ -117,14 +117,14 @@ otto spawn codex "Implement OAuth frontend: login form, token storage..."
 otto spawn claude "Review OAuth implementation for security issues"
 
 # Agents communicate
-otto say --agent agent-backend "@agent-frontend backend ready for integration"
-otto ask --agent agent-backend --human "Should I use passport.js or custom JWT?"
-otto update --agent agent-frontend "Login form complete, starting token flow"
-otto complete --agent agent-backend "Backend done. PR ready."
+otto say --id agent-backend "@agent-frontend backend ready for integration"
+otto ask --id agent-backend --human "Should I use passport.js or custom JWT?"
+otto say --id agent-frontend "Login form complete, starting token flow"
+otto complete --id agent-backend "Backend done. PR ready."
 
 # Orchestrator routes messages
 otto messages
-otto reply msg-123 "Use passport.js with Google and GitHub strategies"
+otto prompt agent-backend "Use passport.js with Google and GitHub strategies"
 otto status
 ```
 
@@ -172,9 +172,8 @@ otto status
 │ [orchestrator] Good investigation. @agent-debug proceed with fix    │
 │                or should I spawn a separate implementation agent?   │
 │                                                                     │
-│ [agent-debug] I'll hand off to an implementation agent with         │
-│               specific fix instructions.                            │
-│   → (sends handoff message with root cause details)                 │
+│ [agent-debug] I'll send findings to the channel for handoff.        │
+│   → otto say --id agent-debug "Root cause: ... fix instructions."   │
 │                                                                     │
 │ [orchestrator] → otto spawn codex "Fix connection pool leak..."     │
 │                  --context "Root cause: [agent-debug's findings]"   │
@@ -230,8 +229,7 @@ otto status
 - Orchestrator asks human for go/no-go decisions
 
 ⚠️ Consider adding:
-- `otto handoff --agent X --to Y "context"` for explicit handoffs?
-- Or is the current say + spawn pattern sufficient?
+- Orchestrator should synthesize handoff context in a message before spawning fix agents.
 
 ---
 
@@ -326,7 +324,6 @@ otto status
 
 ⚠️ Consider:
 - Each agent should work in separate git branch (--branch flag?)
-- `otto discard <agent>` to cleanly remove rejected approach?
 
 ---
 
@@ -407,7 +404,6 @@ otto status
 
 ⚠️ Consider:
 - State tracking beyond just "what's done" - maybe store in otto.db?
-- `otto resume` to pick up where we left off?
 - Integration with TodoWrite for progress tracking
 
 ---
@@ -519,29 +515,15 @@ otto status
    otto spawn claude "Review PR" --pr 142
    ```
 
-3. **`otto resume <orchestrator>`** - Explicitly resume previous work
-   ```bash
-   otto resume  # resume current project/branch orchestrator
-   ```
-
-4. **`otto handoff --to <agent>`** - Explicit handoff with context
-   ```bash
-   otto handoff --agent agent-debug --to agent-fix "Root cause: ..."
-   ```
-
-5. **State tracking** - Track phase/progress in otto.db, not just messages
+3. **State tracking** - Track phase/progress in otto.db, not just messages
 
 ### Guidelines Refinements
 
-1. **Check messages frequency:** Agents should check `otto messages --unread` after each major step, not just periodically.
+1. **Check messages frequency:** Agents should check `otto messages` after each major step, not just periodically.
 
-2. **When to use #main vs DM:**
-   - #main: Status updates, questions, completions, anything others might need
-   - DM: Quick clarifications between two agents that don't need visibility
+2. **Heartbeat updates:** For long-running tasks (>5 min), agents should post UPDATE every few minutes so orchestrator knows they're alive.
 
-3. **Heartbeat updates:** For long-running tasks (>5 min), agents should post UPDATE every few minutes so orchestrator knows they're alive.
-
-4. **Branch discipline:** Each agent should work in its own branch when making code changes, merge only after review.
+3. **Branch discipline:** Each agent should work in its own branch when making code changes, merge only after review.
 
 ---
 
@@ -549,7 +531,6 @@ otto status
 
 The otto API handles these scenarios well. Main refinements:
 - Add `--branch` and `--pr` flags for common patterns
-- Consider explicit `otto handoff` command
 - Add heartbeat guidance to agent prompts
 - State tracking beyond messages for long-running work
 

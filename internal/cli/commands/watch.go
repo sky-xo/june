@@ -1,0 +1,75 @@
+package commands
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"time"
+
+	"otto/internal/repo"
+	"otto/internal/tui"
+
+	"github.com/spf13/cobra"
+)
+
+func NewWatchCmd() *cobra.Command {
+	var useUI bool
+
+	cmd := &cobra.Command{
+		Use:   "watch",
+		Short: "Watch for new messages in real-time",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			conn, err := openDB()
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+
+			if useUI {
+				return tui.Run(conn)
+			}
+
+			return runWatch(cmd.Context(), conn)
+		},
+	}
+
+	cmd.Flags().BoolVar(&useUI, "ui", false, "Use interactive TUI mode")
+
+	return cmd
+}
+
+func runWatch(ctx context.Context, db *sql.DB) error {
+	fmt.Println("Watching for messages... (Ctrl+C to stop)")
+
+	var lastSeenID string
+
+	for {
+		// Check for context cancellation
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+
+		// Build filter
+		filter := repo.MessageFilter{}
+		if lastSeenID != "" {
+			filter.SinceID = lastSeenID
+		}
+
+		// Fetch new messages
+		messages, err := repo.ListMessages(db, filter)
+		if err != nil {
+			return err
+		}
+
+		// Print new messages
+		for _, m := range messages {
+			fmt.Printf("[%s] %s: %s\n", m.Type, m.FromID, m.Content)
+			lastSeenID = m.ID
+		}
+
+		// Sleep before next poll
+		time.Sleep(1 * time.Second)
+	}
+}
