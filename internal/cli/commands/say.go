@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 
@@ -99,5 +100,8 @@ func openDB() (*sql.DB, error) {
 	}
 
 	dbPath := filepath.Join(config.DataDir(), "orchestrators", scopePath, "otto.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		return nil, fmt.Errorf("create db dir: %w", err)
+	}
 	return db.Open(dbPath)
 }

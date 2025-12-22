@@ -105,7 +105,7 @@ func TestGenerateAgentIDUnique(t *testing.T) {
 }
 
 func TestBuildSpawnPrompt(t *testing.T) {
-	prompt := buildSpawnPrompt("test-agent", "build auth", "", "")
+	prompt := buildSpawnPrompt("test-agent", "build auth", "", "", "/usr/local/bin/otto")
 
 	if !strings.Contains(prompt, "test-agent") {
 		t.Fatal("prompt should contain agent ID")
@@ -113,13 +113,13 @@ func TestBuildSpawnPrompt(t *testing.T) {
 	if !strings.Contains(prompt, "build auth") {
 		t.Fatal("prompt should contain task")
 	}
-	if !strings.Contains(prompt, "otto messages --id test-agent") {
-		t.Fatal("prompt should contain communication template")
+	if !strings.Contains(prompt, "/usr/local/bin/otto messages --id test-agent") {
+		t.Fatal("prompt should contain communication template with otto path")
 	}
 }
 
 func TestBuildSpawnPromptWithFilesAndContext(t *testing.T) {
-	prompt := buildSpawnPrompt("test-agent", "task", "auth.go,user.go", "use JWT tokens")
+	prompt := buildSpawnPrompt("test-agent", "task", "auth.go,user.go", "use JWT tokens", "otto")
 
 	if !strings.Contains(prompt, "auth.go,user.go") {
 		t.Fatal("prompt should contain files")

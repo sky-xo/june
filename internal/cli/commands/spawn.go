@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 
@@ -75,8 +76,14 @@ func runSpawn(db *sql.DB, runner ottoexec.Runner, agentType, task, files, contex
 		return fmt.Errorf("create agent: %w", err)
 	}
 
+	// Get current executable path so agents can find otto
+	ottoBin, err := os.Executable()
+	if err != nil {
+		ottoBin = "otto" // fallback to PATH
+	}
+
 	// Build spawn prompt
-	prompt := buildSpawnPrompt(agentID, task, files, context)
+	prompt := buildSpawnPrompt(agentID, task, files, context, ottoBin)
 
 	// Build and run command
 	cmdArgs := buildSpawnCommand(agentType, prompt, sessionID)
@@ -113,7 +120,7 @@ func generateAgentID(db *sql.DB, task string) string {
 	}
 }
 
-func buildSpawnPrompt(agentID, task, files, context string) string {
+func buildSpawnPrompt(agentID, task, files, context, ottoBin string) string {
 	prompt := fmt.Sprintf(`You are an agent working on: %s
 
 Your agent ID: %s`, task, agentID)
@@ -135,17 +142,17 @@ see everything. Use @mentions to direct attention to specific agents.
 IMPORTANT: Always include your ID (--id ` + agentID + `) in every command.
 
 ### Check for messages
-otto messages --id ` + agentID + `              # unread messages
-otto messages --mentions ` + agentID + `        # just messages that @mention you
+` + ottoBin + ` messages --id ` + agentID + `              # unread messages
+` + ottoBin + ` messages --mentions ` + agentID + `        # just messages that @mention you
 
 ### Post a message
-otto say --id ` + agentID + ` "message here"
+` + ottoBin + ` say --id ` + agentID + ` "message here"
 
 ### Ask a question (sets you to WAITING)
-otto ask --id ` + agentID + ` "your question"
+` + ottoBin + ` ask --id ` + agentID + ` "your question"
 
 ### Mark task as complete
-otto complete --id ` + agentID + ` "summary of what was done"
+` + ottoBin + ` complete --id ` + agentID + ` "summary of what was done"
 
 ## Guidelines
 

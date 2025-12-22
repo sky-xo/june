@@ -4,17 +4,17 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"time"
 
 	"otto/internal/repo"
 	"otto/internal/tui"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 func NewWatchCmd() *cobra.Command {
-	var useUI bool
-
 	cmd := &cobra.Command{
 		Use:   "watch",
 		Short: "Watch for new messages in real-time",
@@ -25,15 +25,13 @@ func NewWatchCmd() *cobra.Command {
 			}
 			defer conn.Close()
 
-			if useUI {
+			if term.IsTerminal(int(os.Stdout.Fd())) {
 				return tui.Run(conn)
 			}
 
 			return runWatch(cmd.Context(), conn)
 		},
 	}
-
-	cmd.Flags().BoolVar(&useUI, "ui", false, "Use interactive TUI mode")
 
 	return cmd
 }

@@ -3,11 +3,14 @@ package commands
 import (
 	"database/sql"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 
+	"otto/internal/config"
 	"otto/internal/db"
 	"otto/internal/repo"
+	"otto/internal/scope"
 )
 
 func openTestDB(t *testing.T) *sql.DB {
@@ -110,5 +113,38 @@ func TestMessagesMentionsStoredAsJSON(t *testing.T) {
 
 	if len(mentions) != 2 || mentions[0] != "alice" || mentions[1] != "bob" {
 		t.Fatalf("expected mentions [alice, bob], got %v", mentions)
+	}
+}
+
+func TestOpenDBCreatesDirectory(t *testing.T) {
+	repoRoot := scope.RepoRoot()
+	if repoRoot == "" {
+		t.Skip("not in a git repository")
+	}
+
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	branch := scope.BranchName()
+	if branch == "" {
+		branch = "main"
+	}
+
+	scopePath := scope.Scope(repoRoot, branch)
+	dbPath := filepath.Join(config.DataDir(), "orchestrators", scopePath, "otto.db")
+	dbDir := filepath.Dir(dbPath)
+
+	if _, err := os.Stat(dbDir); !os.IsNotExist(err) {
+		t.Fatalf("expected db dir to not exist, got err=%v", err)
+	}
+
+	conn, err := openDB()
+	if err != nil {
+		t.Fatalf("openDB: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if _, err := os.Stat(dbDir); err != nil {
+		t.Fatalf("expected db dir to exist, got err=%v", err)
 	}
 }
