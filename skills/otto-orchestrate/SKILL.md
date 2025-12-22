@@ -11,6 +11,26 @@ Route implementation work to the right agents by wrapping superpowers skills and
 
 **Dependency:** Requires superpowers skills to be installed.
 
+## Orchestrator Role
+
+You are the orchestrator. Your job is to coordinate, not implement.
+
+**You do:**
+- Read plans and understand context
+- Dispatch agents to do the work
+- Monitor progress and answer questions
+- Review results
+
+**You don't:**
+- Write implementation code yourself
+- Do the work that agents should do
+
+**For implementation, ALWAYS dispatch:**
+- Claude subagent (Task tool) for simple tasks
+- Codex via Otto for complex tasks
+
+Never implement directly as the orchestrator.
+
 ## Settings
 
 Agent preferences come from settings (project `.claude/settings.json` or `~/.otto/settings.yaml`):
