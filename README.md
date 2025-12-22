@@ -15,13 +15,13 @@ Otto lets you spawn multiple AI agents that work in parallel, communicate throug
 ## Installation
 
 ```bash
-go install github.com/youruser/otto@latest
+go install github.com/sky-xo/otto@latest
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/youruser/otto
+git clone https://github.com/sky-xo/otto
 cd otto
 make build
 ```
