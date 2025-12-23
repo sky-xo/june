@@ -21,7 +21,7 @@ func openTestDB(t *testing.T) *sql.DB {
 func TestAgentsCRUD(t *testing.T) {
 	db := openTestDB(t)
 
-	err := CreateAgent(db, Agent{ID: "authbackend", Type: "claude", Task: "design", Status: "working"})
+	err := CreateAgent(db, Agent{ID: "authbackend", Type: "claude", Task: "design", Status: "busy"})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestDeleteAgent(t *testing.T) {
 	conn := openTestDB(t)
 	defer conn.Close()
 
-	agent := Agent{ID: "test", Type: "claude", Task: "test task", Status: "working"}
+	agent := Agent{ID: "test", Type: "claude", Task: "test task", Status: "busy"}
 	if err := CreateAgent(conn, agent); err != nil {
 		t.Fatalf("create: %v", err)
 	}

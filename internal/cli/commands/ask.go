@@ -60,7 +60,7 @@ func runAsk(db *sql.DB, fromID, content string) error {
 		return fmt.Errorf("create message: %w", err)
 	}
 
-	if err := repo.UpdateAgentStatus(db, fromID, "waiting"); err != nil {
+	if err := repo.UpdateAgentStatus(db, fromID, "blocked"); err != nil {
 		return fmt.Errorf("update agent status: %w", err)
 	}
 

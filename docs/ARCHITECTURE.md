@@ -1,6 +1,6 @@
 # Otto Architecture
 
-How Otto works under the hood. For feature status, see `ROADMAP.md`. For usage examples, see `SCENARIOS.md`.
+How Otto works under the hood. For feature status, see `TODO.md`. For usage examples, see `SCENARIOS.md`.
 
 ## Overview
 
@@ -105,11 +105,12 @@ Both support session resume:
 ### Agent States
 
 ```
-WORKING   - actively processing a task
-WAITING   - blocked, has a question for orchestrator
-DONE      - completed its task
-FAILED    - crashed or errored out
+BUSY      - actively processing a task
+IDLE      - ready for input (interrupted or between turns)
+BLOCKED   - asked a question, needs reply to continue
 ```
+
+Note: Agents are deleted from the database when they complete or exit. The `messages` table preserves history.
 
 ### Orchestrator Scoping
 

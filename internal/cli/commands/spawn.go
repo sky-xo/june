@@ -60,12 +60,12 @@ func runSpawn(db *sql.DB, runner ottoexec.Runner, agentType, task, files, contex
 	// Generate session ID (for Claude, or as placeholder for Codex until we capture thread_id)
 	sessionID := uuid.New().String()
 
-	// Create agent row (status: working)
+	// Create agent row (status: busy)
 	agent := repo.Agent{
 		ID:        agentID,
 		Type:      agentType,
 		Task:      task,
-		Status:    "working",
+		Status:    "busy",
 		SessionID: sql.NullString{String: sessionID, Valid: true},
 	}
 

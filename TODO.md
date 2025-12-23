@@ -29,7 +29,7 @@ Features that reduce friction once core loop is validated.
 - [x] Agent lifecycle: auto-delete on completion/exit (messages table is history)
 - [x] `otto kill` - stop an agent (SIGTERM, deletes agent)
 - [x] `otto interrupt` - pause an agent (SIGINT, preserves session for resume)
-- [ ] Agent statuses: busy/idle/blocked (replace working/waiting)
+- [x] Agent statuses: busy/idle/blocked (replace working/waiting)
 - [ ] Add `--skip-git-repo-check` to Codex invocation
 - [ ] TUI: 3-line task descriptions (less truncation)
 - [ ] TUI: agents panel on left side
@@ -71,6 +71,6 @@ Design docs for recently completed work:
 ## Next Up
 
 Priority items for next session:
-1. **Agent statuses** - Change working/waiting to busy/idle/blocked
-2. **Codex flag** - Add `--skip-git-repo-check` to reduce startup time
-3. **Test interrupt with Codex** - Verify interrupt/resume flow works end-to-end
+1. **Codex flag** - Add `--skip-git-repo-check` to reduce startup time
+2. **Test interrupt with Codex** - Verify interrupt/resume flow works end-to-end
+3. **TUI improvements** - 3-line task descriptions, agents panel

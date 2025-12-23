@@ -17,7 +17,7 @@ func TestKillDeletesAgent(t *testing.T) {
 		ID:     "testagent",
 		Type:   "claude",
 		Task:   "test task",
-		Status: "working",
+		Status: "busy",
 		Pid:    sql.NullInt64{Int64: 99999, Valid: true}, // Use fake PID that doesn't exist
 	}
 	if err := repo.CreateAgent(db, agent); err != nil {
@@ -44,7 +44,7 @@ func TestKillRequiresPID(t *testing.T) {
 		ID:     "nopidagent",
 		Type:   "claude",
 		Task:   "test task",
-		Status: "working",
+		Status: "busy",
 	}
 	if err := repo.CreateAgent(db, agent); err != nil {
 		t.Fatalf("create agent: %v", err)

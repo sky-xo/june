@@ -51,7 +51,7 @@ Two tables: `agents` (id, type, task, status, session_id) and `messages` (id, fr
 
 ## Documentation
 
-- `docs/ROADMAP.md` - Feature status by version
+- `TODO.md` - Feature status and next priorities
 - `docs/ARCHITECTURE.md` - How Otto works
 - `docs/SCENARIOS.md` - Usage scenarios / test cases
 - `docs/plans/` - Design docs and implementation plans
@@ -61,4 +61,4 @@ Two tables: `agents` (id, type, task, status, session_id) and `messages` (id, fr
 When brainstorming new features or design ideas:
 - Create `docs/plans/YYYY-MM-DD-<feature>-design.md`
 - Mark status at top: `Draft` → `Ready for review` → `Approved`
-- Keep ROADMAP.md as quick overview, detailed design goes in plan files
+- Keep TODO.md as quick overview, detailed design goes in plan files

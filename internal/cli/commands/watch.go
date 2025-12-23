@@ -82,7 +82,7 @@ func cleanupStaleAgents(db *sql.DB) {
 		return
 	}
 	for _, a := range agents {
-		if a.Status == "working" && a.Pid.Valid {
+		if a.Status == "busy" && a.Pid.Valid {
 			if !process.IsProcessAlive(int(a.Pid.Int64)) {
 				// Post exit message and delete agent
 				msg := repo.Message{

@@ -79,7 +79,7 @@ func TestGenerateAgentIDUnique(t *testing.T) {
 		ID:     "authbackend",
 		Type:   "claude",
 		Task:   "task",
-		Status: "working",
+		Status: "busy",
 		SessionID: sql.NullString{String: "session-1", Valid: true},
 	})
 
@@ -94,7 +94,7 @@ func TestGenerateAgentIDUnique(t *testing.T) {
 		ID:     "authbackend-2",
 		Type:   "claude",
 		Task:   "task",
-		Status: "working",
+		Status: "busy",
 		SessionID: sql.NullString{String: "session-2", Valid: true},
 	})
 

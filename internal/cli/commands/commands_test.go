@@ -23,23 +23,23 @@ func openTestDB(t *testing.T) *sql.DB {
 	return conn
 }
 
-func TestAskSetsWaiting(t *testing.T) {
+func TestAskSetsBlocked(t *testing.T) {
 	db := openTestDB(t)
-	_ = repo.CreateAgent(db, repo.Agent{ID: "authbackend", Type: "claude", Task: "task", Status: "working"})
+	_ = repo.CreateAgent(db, repo.Agent{ID: "authbackend", Type: "claude", Task: "task", Status: "busy"})
 	err := runAsk(db, "authbackend", "Question?")
 	if err != nil {
 		t.Fatalf("ask: %v", err)
 	}
 
 	agents, _ := repo.ListAgents(db)
-	if agents[0].Status != "waiting" {
-		t.Fatalf("expected waiting, got %q", agents[0].Status)
+	if agents[0].Status != "blocked" {
+		t.Fatalf("expected blocked, got %q", agents[0].Status)
 	}
 }
 
 func TestCompleteDeletesAgent(t *testing.T) {
 	db := openTestDB(t)
-	_ = repo.CreateAgent(db, repo.Agent{ID: "authbackend", Type: "claude", Task: "task", Status: "working"})
+	_ = repo.CreateAgent(db, repo.Agent{ID: "authbackend", Type: "claude", Task: "task", Status: "busy"})
 	err := runComplete(db, "authbackend", "All done!")
 	if err != nil {
 		t.Fatalf("complete: %v", err)

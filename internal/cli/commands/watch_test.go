@@ -112,7 +112,7 @@ func TestCleanupStaleAgentsDeletesDeadAgents(t *testing.T) {
 		ID:     "deadagent",
 		Type:   "claude",
 		Task:   "test task",
-		Status: "working",
+		Status: "busy",
 		Pid:    sql.NullInt64{Int64: deadPID, Valid: true},
 	}
 	if err := repo.CreateAgent(testDB, agent); err != nil {

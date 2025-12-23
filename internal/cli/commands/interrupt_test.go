@@ -33,7 +33,7 @@ func TestInterruptRequiresPID(t *testing.T) {
 		ID:     "nopidagent",
 		Type:   "claude",
 		Task:   "test task",
-		Status: "working",
+		Status: "busy",
 	}
 	if err := repo.CreateAgent(db, agent); err != nil {
 		t.Fatalf("create agent: %v", err)
