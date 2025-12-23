@@ -140,8 +140,7 @@ func runCodexSpawn(db *sql.DB, runner ottoexec.Runner, agentID string, cmdArgs [
 	if err != nil {
 		return fmt.Errorf("create temp CODEX_HOME: %w", err)
 	}
-	// Note: intentionally not cleaning up tempDir - OS will clean it eventually
-	// This avoids potential race conditions if cleanup happens while agent is still running
+	defer os.RemoveAll(tempDir) // Cleanup after agent process exits
 
 	// Set CODEX_HOME to temp dir to bypass ~/.codex/AGENTS.md
 	env := append(os.Environ(), fmt.Sprintf("CODEX_HOME=%s", tempDir))
@@ -149,6 +148,7 @@ func runCodexSpawn(db *sql.DB, runner ottoexec.Runner, agentID string, cmdArgs [
 	// Start with capture to parse JSON output
 	pid, lines, wait, err := runner.StartWithCaptureEnv(cmdArgs[0], env, cmdArgs[1:]...)
 	if err != nil {
+		os.RemoveAll(tempDir) // Cleanup temp dir on spawn failure
 		return fmt.Errorf("spawn codex: %w", err)
 	}
 

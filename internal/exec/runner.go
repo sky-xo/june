@@ -40,6 +40,11 @@ func (r *DefaultRunner) StartWithCapture(name string, args ...string) (int, <-ch
 	return r.StartWithCaptureEnv(name, nil, args...)
 }
 
+// StartWithCaptureEnv starts a command with custom environment and captures stdout
+// in a channel for line-by-line processing. If env is nil, the command inherits
+// the parent process environment. If env is non-nil, it completely replaces the
+// environment (use append(os.Environ(), "KEY=val") to extend parent environment).
+// Returns the process PID, a channel for stdout lines, a wait function, and any error.
 func (r *DefaultRunner) StartWithCaptureEnv(name string, env []string, args ...string) (int, <-chan string, func() error, error) {
 	cmd := exec.Command(name, args...)
 
