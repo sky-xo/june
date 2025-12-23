@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -141,6 +142,17 @@ func runCodexSpawn(db *sql.DB, runner ottoexec.Runner, agentID string, cmdArgs [
 		return fmt.Errorf("create temp CODEX_HOME: %w", err)
 	}
 	defer os.RemoveAll(tempDir) // Cleanup after agent process exits
+
+	// Copy auth.json from real CODEX_HOME to preserve credentials
+	realCodexHome := os.Getenv("CODEX_HOME")
+	if realCodexHome == "" {
+		home, _ := os.UserHomeDir()
+		realCodexHome = filepath.Join(home, ".codex")
+	}
+	authSrc := filepath.Join(realCodexHome, "auth.json")
+	if authData, err := os.ReadFile(authSrc); err == nil {
+		_ = os.WriteFile(filepath.Join(tempDir, "auth.json"), authData, 0600)
+	}
 
 	// Set CODEX_HOME to temp dir to bypass ~/.codex/AGENTS.md
 	env := append(os.Environ(), fmt.Sprintf("CODEX_HOME=%s", tempDir))
@@ -293,6 +305,6 @@ func buildSpawnCommand(agentType, prompt, sessionID string) []string {
 	if agentType == "claude" {
 		return []string{"claude", "-p", prompt, "--session-id", sessionID}
 	}
-	// codex - use --json to capture thread_id
-	return []string{"codex", "exec", "--json", prompt}
+	// codex - use --json to capture thread_id, --skip-git-repo-check to allow non-repo dirs
+	return []string{"codex", "exec", "--json", "--skip-git-repo-check", prompt}
 }
