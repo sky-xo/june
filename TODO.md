@@ -30,6 +30,7 @@ Features that reduce friction once core loop is validated.
 - [x] `otto kill` - stop an agent (SIGTERM, deletes agent)
 - [x] `otto interrupt` - pause an agent (SIGINT, preserves session for resume)
 - [x] Agent statuses: busy/idle/blocked (replace working/waiting)
+- [x] CODEX_HOME bypass for Codex agents (skip superpowers loading)
 - [ ] Add `--skip-git-repo-check` to Codex invocation
 - [ ] TUI: 3-line task descriptions (less truncation)
 - [ ] TUI: agents panel on left side
