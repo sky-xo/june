@@ -105,6 +105,68 @@ func TestGenerateAgentIDUnique(t *testing.T) {
 	}
 }
 
+func TestResolveAgentName(t *testing.T) {
+	db := openTestDB(t)
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"simple", "researcher", "researcher"},
+		{"with hyphens", "auth-backend-api", "auth-backend-api"},
+		{"uppercase", "MyAgent", "myagent"},
+		{"special chars", "agent#1: test@!", "agent1test"},
+		{"multiple hyphens", "agent---name", "agent-name"},
+		{"leading/trailing hyphens", "-agent-", "agent"},
+		{"empty after filter", "!!!", "agent"},
+		{"spaces", "my agent name", "myagentname"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := resolveAgentName(db, tt.input)
+			if result != tt.expected {
+				t.Fatalf("expected %q, got %q", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestResolveAgentNameUnique(t *testing.T) {
+	db := openTestDB(t)
+
+	// Create first agent with name "researcher"
+	_ = repo.CreateAgent(db, repo.Agent{
+		ID:     "researcher",
+		Type:   "claude",
+		Task:   "task",
+		Status: "busy",
+		SessionID: sql.NullString{String: "session-1", Valid: true},
+	})
+
+	// Resolve same name should get -2 suffix
+	result := resolveAgentName(db, "researcher")
+	if result != "researcher-2" {
+		t.Fatalf("expected researcher-2, got %q", result)
+	}
+
+	// Create second agent
+	_ = repo.CreateAgent(db, repo.Agent{
+		ID:     "researcher-2",
+		Type:   "claude",
+		Task:   "task",
+		Status: "busy",
+		SessionID: sql.NullString{String: "session-2", Valid: true},
+	})
+
+	// Resolve same name should get -3 suffix
+	result = resolveAgentName(db, "researcher")
+	if result != "researcher-3" {
+		t.Fatalf("expected researcher-3, got %q", result)
+	}
+}
+
 func TestBuildSpawnPrompt(t *testing.T) {
 	prompt := buildSpawnPrompt("test-agent", "build auth", "", "", "/usr/local/bin/otto")
 
@@ -141,6 +203,10 @@ type mockRunner struct {
 var _ ottoexec.Runner = (*mockRunner)(nil)
 
 func (m *mockRunner) Run(name string, args ...string) error {
+	return nil
+}
+
+func (m *mockRunner) RunWithEnv(name string, env []string, args ...string) error {
 	return nil
 }
 
@@ -186,7 +252,7 @@ func TestCodexSpawnCapturesThreadID(t *testing.T) {
 	}
 
 	// Run Codex spawn
-	err := runSpawn(db, runner, "codex", "test task", "", "")
+	err := runSpawn(db, runner, "codex", "test task", "", "", "")
 	if err != nil {
 		t.Fatalf("runSpawn failed: %v", err)
 	}
@@ -214,7 +280,7 @@ func TestCodexSpawnWithoutThreadID(t *testing.T) {
 	}
 
 	// Run Codex spawn
-	err := runSpawn(db, runner, "codex", "test task", "", "")
+	err := runSpawn(db, runner, "codex", "test task", "", "", "")
 	if err != nil {
 		t.Fatalf("runSpawn failed: %v", err)
 	}
@@ -242,7 +308,7 @@ func TestClaudeSpawnUsesNormalStart(t *testing.T) {
 	}
 
 	// Run Claude spawn
-	err := runSpawn(db, runner, "claude", "test task", "", "")
+	err := runSpawn(db, runner, "claude", "test task", "", "", "")
 	if err != nil {
 		t.Fatalf("runSpawn failed: %v", err)
 	}
@@ -267,7 +333,7 @@ func TestCodexSpawnSetsCodexHome(t *testing.T) {
 	}
 
 	// Run Codex spawn
-	err := runSpawn(db, runner, "codex", "test task", "", "")
+	err := runSpawn(db, runner, "codex", "test task", "", "", "")
 	if err != nil {
 		t.Fatalf("runSpawn failed: %v", err)
 	}
@@ -288,5 +354,102 @@ func TestCodexSpawnSetsCodexHome(t *testing.T) {
 
 	if !found {
 		t.Fatal("CODEX_HOME environment variable should be set for Codex agents")
+	}
+}
+
+func TestSpawnWithCustomName(t *testing.T) {
+	db := openTestDB(t)
+
+	// Channel to signal when we've verified the agent
+	agentVerified := make(chan bool)
+
+	runner := &mockRunner{
+		startFunc: func(name string, args ...string) (int, func() error, error) {
+			// Check agent exists with custom name while process is "running"
+			_, err := repo.GetAgent(db, "researcher")
+			if err != nil {
+				t.Errorf("expected agent with ID 'researcher', got error: %v", err)
+			}
+
+			// Verify auto-generated ID was NOT used
+			_, err = repo.GetAgent(db, "buildtheauthback") // auto-generated would be first 16 chars
+			if err != sql.ErrNoRows {
+				t.Error("expected no agent with auto-generated ID, but found one")
+			}
+
+			// Signal verification complete
+			close(agentVerified)
+
+			// Return wait function
+			return 1234, func() error {
+				<-agentVerified // Wait for verification
+				return nil
+			}, nil
+		},
+	}
+
+	// Spawn with custom name
+	err := runSpawn(db, runner, "claude", "build the auth backend", "", "", "researcher")
+	if err != nil {
+		t.Fatalf("runSpawn failed: %v", err)
+	}
+
+	// Agent should be deleted after process exits
+	_, err = repo.GetAgent(db, "researcher")
+	if err != sql.ErrNoRows {
+		t.Fatalf("expected agent to be deleted after completion, got err=%v", err)
+	}
+}
+
+func TestSpawnWithCustomNameCollision(t *testing.T) {
+	db := openTestDB(t)
+
+	// Create first agent with name "researcher"
+	_ = repo.CreateAgent(db, repo.Agent{
+		ID:     "researcher",
+		Type:   "claude",
+		Task:   "task 1",
+		Status: "busy",
+		SessionID: sql.NullString{String: "session-1", Valid: true},
+	})
+
+	// Channel to signal when we've verified the agent
+	agentVerified := make(chan bool)
+
+	runner := &mockRunner{
+		startFunc: func(name string, args ...string) (int, func() error, error) {
+			// Verify second agent got -2 suffix while process is "running"
+			_, err := repo.GetAgent(db, "researcher-2")
+			if err != nil {
+				t.Errorf("expected agent with ID 'researcher-2', got error: %v", err)
+			}
+
+			// Signal verification complete
+			close(agentVerified)
+
+			// Return wait function
+			return 1234, func() error {
+				<-agentVerified // Wait for verification
+				return nil
+			}, nil
+		},
+	}
+
+	// Spawn with same custom name
+	err := runSpawn(db, runner, "claude", "task 2", "", "", "researcher")
+	if err != nil {
+		t.Fatalf("runSpawn failed: %v", err)
+	}
+
+	// Second agent should be deleted after process exits
+	_, err = repo.GetAgent(db, "researcher-2")
+	if err != sql.ErrNoRows {
+		t.Fatalf("expected agent to be deleted after completion, got err=%v", err)
+	}
+
+	// First agent should still exist
+	_, err = repo.GetAgent(db, "researcher")
+	if err != nil {
+		t.Fatalf("expected first agent to still exist, got error: %v", err)
 	}
 }

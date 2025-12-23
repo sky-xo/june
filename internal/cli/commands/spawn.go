@@ -20,6 +20,7 @@ import (
 var (
 	spawnFiles   string
 	spawnContext string
+	spawnName    string
 )
 
 func NewSpawnCmd() *cobra.Command {
@@ -46,17 +47,23 @@ func NewSpawnCmd() *cobra.Command {
 			}
 			defer conn.Close()
 
-			return runSpawn(conn, &ottoexec.DefaultRunner{}, agentType, task, spawnFiles, spawnContext)
+			return runSpawn(conn, &ottoexec.DefaultRunner{}, agentType, task, spawnFiles, spawnContext, spawnName)
 		},
 	}
 	cmd.Flags().StringVar(&spawnFiles, "files", "", "Relevant files for the agent")
 	cmd.Flags().StringVar(&spawnContext, "context", "", "Additional context for the agent")
+	cmd.Flags().StringVar(&spawnName, "name", "", "Custom name for the agent (defaults to auto-generated from task)")
 	return cmd
 }
 
-func runSpawn(db *sql.DB, runner ottoexec.Runner, agentType, task, files, context string) error {
-	// Generate agent ID from task slug
-	agentID := generateAgentID(db, task)
+func runSpawn(db *sql.DB, runner ottoexec.Runner, agentType, task, files, context, name string) error {
+	// Generate agent ID: use provided name or auto-generate from task
+	var agentID string
+	if name != "" {
+		agentID = resolveAgentName(db, name)
+	} else {
+		agentID = generateAgentID(db, task)
+	}
 
 	// Generate session ID (for Claude, or as placeholder for Codex until we capture thread_id)
 	sessionID := uuid.New().String()
@@ -107,7 +114,7 @@ func runSpawn(db *sql.DB, runner ottoexec.Runner, agentType, task, files, contex
 			ID:           uuid.New().String(),
 			FromID:       agentID,
 			Type:         "exit",
-			Content:      fmt.Sprintf("EXITED: process failed: %v", err),
+			Content:      fmt.Sprintf("process failed: %v", err),
 			MentionsJSON: "[]",
 			ReadByJSON:   "[]",
 		}
@@ -124,7 +131,7 @@ func runSpawn(db *sql.DB, runner ottoexec.Runner, agentType, task, files, contex
 			ID:           uuid.New().String(),
 			FromID:       agentID,
 			Type:         "exit",
-			Content:      "EXITED: process completed successfully",
+			Content:      "process completed successfully",
 			MentionsJSON: "[]",
 			ReadByJSON:   "[]",
 		}
@@ -198,7 +205,7 @@ func runCodexSpawn(db *sql.DB, runner ottoexec.Runner, agentID string, cmdArgs [
 			ID:           uuid.New().String(),
 			FromID:       agentID,
 			Type:         "exit",
-			Content:      fmt.Sprintf("EXITED: process failed: %v", err),
+			Content:      fmt.Sprintf("process failed: %v", err),
 			MentionsJSON: "[]",
 			ReadByJSON:   "[]",
 		}
@@ -223,7 +230,7 @@ func runCodexSpawn(db *sql.DB, runner ottoexec.Runner, agentID string, cmdArgs [
 			ID:           uuid.New().String(),
 			FromID:       agentID,
 			Type:         "exit",
-			Content:      "EXITED: process completed successfully",
+			Content:      "process completed successfully",
 			MentionsJSON: "[]",
 			ReadByJSON:   "[]",
 		}
@@ -254,6 +261,30 @@ func generateAgentID(db *sql.DB, task string) string {
 			return slug
 		}
 		slug = fmt.Sprintf("%s-%d", baseSlug, counter)
+		counter++
+	}
+}
+
+func resolveAgentName(db *sql.DB, name string) string {
+	// Clean up provided name: lowercase, alphanumeric and hyphens only
+	slug := strings.ToLower(name)
+	slug = regexp.MustCompile(`[^a-z0-9-]`).ReplaceAllString(slug, "")
+	// Collapse multiple hyphens and trim
+	slug = regexp.MustCompile(`-+`).ReplaceAllString(slug, "-")
+	slug = strings.Trim(slug, "-")
+	if slug == "" {
+		slug = "agent"
+	}
+
+	// Check if name exists, append -2, -3, etc.
+	baseName := slug
+	counter := 2
+	for {
+		_, err := repo.GetAgent(db, slug)
+		if err == sql.ErrNoRows {
+			return slug
+		}
+		slug = fmt.Sprintf("%s-%d", baseName, counter)
 		counter++
 	}
 }

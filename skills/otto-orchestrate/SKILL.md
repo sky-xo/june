@@ -81,8 +81,11 @@ PHASE 3: COMPLETION
    Follow this planning process:
    [writing-plans skill content]
 
-   Design doc: docs/plans/YYYY-MM-DD-feature-design.md"
+   Design doc: docs/plans/YYYY-MM-DD-feature-design.md" --name planner
    ```
+
+   The `--name` flag gives agents readable IDs (e.g., `planner`, `implementer`) instead of auto-generated ones like `writeanimplementa`.
+
 3. Monitor via `otto watch`, respond to checkpoints via `otto prompt`
 4. Agent outputs plan following superpowers format
 
@@ -118,7 +121,7 @@ For each task:
 2. Run spec compliance review
 3. Run code quality review
 4. Fix any issues, re-review until approved
-5. Move to next task"
+5. Move to next task" --name implementer
 ```
 
 Monitor via `otto watch`, answer questions via `otto prompt`.
@@ -138,23 +141,23 @@ User: "Implement the auth feature we designed"
 Orchestrator: Design doc exists. Using otto-orchestrate skill.
 
 [Phase 1: Planning]
-→ otto spawn codex "Write implementation plan..."
+→ otto spawn codex "Write implementation plan..." --name planner
 
-Codex (via otto ask): "Key decision: passport.js or direct JWT?"
-→ otto prompt planningagent "Use passport.js"
+planner (via otto ask): "Key decision: passport.js or direct JWT?"
+→ otto prompt planner "Use passport.js"
 
-Codex: "Plan complete. See docs/plans/2025-01-15-auth-plan.md"
+planner: "Plan complete. See docs/plans/2025-01-15-auth-plan.md"
 
 [Phase 2: Execution]
 Orchestrator: Plan has 6 tasks, multi-file. Using Codex via Otto.
-→ otto spawn codex "Implement following subagent-driven-development..."
+→ otto spawn codex "Implement following subagent-driven-development..." --name implementer
 
 [Agent works through tasks with built-in reviews]
 
-Codex: "All 6 tasks complete. Tests passing."
+implementer: "All 6 tasks complete. Tests passing."
 
 [Phase 3: Completion]
-Codex: "Using finishing-a-development-branch. Ready to merge?"
+implementer: "Using finishing-a-development-branch. Ready to merge?"
 ```
 
 ## Red Flags
