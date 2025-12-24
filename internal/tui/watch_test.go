@@ -3,6 +3,7 @@ package tui
 import (
 	"database/sql"
 	"testing"
+	"time"
 
 	"otto/internal/repo"
 
@@ -95,5 +96,105 @@ func TestChannelsIncludeMainFirst(t *testing.T) {
 	}
 	if channels[1].ID != "agent-1" || channels[2].ID != "agent-2" {
 		t.Fatalf("unexpected channel order: %q, %q", channels[1].ID, channels[2].ID)
+	}
+}
+
+func TestArchivedAgentsHiddenByDefault(t *testing.T) {
+	m := NewModel(nil)
+	archivedAt := time.Now().Add(-time.Hour)
+	m.agents = []repo.Agent{
+		{ID: "agent-1", Status: "busy"},
+		{
+			ID:         "agent-2",
+			Status:     "complete",
+			ArchivedAt: sql.NullTime{Time: archivedAt, Valid: true},
+		},
+	}
+
+	channels := m.channels()
+	if len(channels) != 3 {
+		t.Fatalf("expected 3 channels, got %d", len(channels))
+	}
+	if channels[0].ID != mainChannelID {
+		t.Fatalf("expected main channel first, got %q", channels[0].ID)
+	}
+	if channels[1].ID != "agent-1" {
+		t.Fatalf("expected active agent second, got %q", channels[1].ID)
+	}
+	if channels[2].ID != archivedChannelID {
+		t.Fatalf("expected archived header last, got %q", channels[2].ID)
+	}
+}
+
+func TestArchivedAgentsAppearWhenExpanded(t *testing.T) {
+	m := NewModel(nil)
+	older := time.Now().Add(-2 * time.Hour)
+	newer := time.Now().Add(-1 * time.Hour)
+	m.agents = []repo.Agent{
+		{ID: "agent-1", Status: "busy"},
+		{
+			ID:         "agent-2",
+			Status:     "complete",
+			ArchivedAt: sql.NullTime{Time: older, Valid: true},
+		},
+		{
+			ID:         "agent-3",
+			Status:     "failed",
+			ArchivedAt: sql.NullTime{Time: newer, Valid: true},
+		},
+	}
+	m.archivedExpanded = true
+
+	channels := m.channels()
+	if len(channels) != 5 {
+		t.Fatalf("expected 5 channels, got %d", len(channels))
+	}
+	if channels[2].ID != archivedChannelID {
+		t.Fatalf("expected archived header at index 2, got %q", channels[2].ID)
+	}
+	if channels[2].Name != "Archived (2)" {
+		t.Fatalf("expected archived header label, got %q", channels[2].Name)
+	}
+	if channels[3].ID != "agent-3" || channels[4].ID != "agent-2" {
+		t.Fatalf("unexpected archived order: %q, %q", channels[3].ID, channels[4].ID)
+	}
+}
+
+func TestArchivedEnterTogglesExpanded(t *testing.T) {
+	m := NewModel(nil)
+	archivedAt := time.Now().Add(-time.Hour)
+	m.agents = []repo.Agent{
+		{ID: "agent-1", Status: "busy"},
+		{
+			ID:         "agent-2",
+			Status:     "complete",
+			ArchivedAt: sql.NullTime{Time: archivedAt, Valid: true},
+		},
+	}
+
+	channels := m.channels()
+	headerIndex := -1
+	for i, ch := range channels {
+		if ch.ID == archivedChannelID {
+			headerIndex = i
+			break
+		}
+	}
+	if headerIndex == -1 {
+		t.Fatal("expected archived header to exist")
+	}
+
+	m.cursorIndex = headerIndex
+	_ = m.activateSelection()
+	if !m.archivedExpanded {
+		t.Fatal("expected archived section to expand on enter")
+	}
+	if m.activeChannelID != mainChannelID {
+		t.Fatalf("expected active channel to remain main, got %q", m.activeChannelID)
+	}
+
+	_ = m.activateSelection()
+	if m.archivedExpanded {
+		t.Fatal("expected archived section to collapse on enter")
 	}
 }
