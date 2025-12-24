@@ -23,6 +23,7 @@ func Execute() {
 	rootCmd.AddCommand(commands.NewWatchCmd())
 	rootCmd.AddCommand(commands.NewKillCmd())
 	rootCmd.AddCommand(commands.NewInterruptCmd())
+	rootCmd.AddCommand(commands.NewLogCmd())
 	rootCmd.AddCommand(commands.NewInstallSkillsCmd())
 
 	if err := rootCmd.Execute(); err != nil {
