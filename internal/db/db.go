@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS agents (
   worktree_path TEXT,
   branch_name TEXT,
   completed_at DATETIME,
+  last_read_log_id TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -79,6 +80,8 @@ func ensureSchema(conn *sql.DB) error {
 	_, _ = conn.Exec(`ALTER TABLE messages ADD COLUMN to_id TEXT`)
 	// Migration: rename transcript_entries to logs
 	_, _ = conn.Exec(`ALTER TABLE transcript_entries RENAME TO logs`)
+	// Migration: add last_read_log_id column if it doesn't exist
+	_, _ = conn.Exec(`ALTER TABLE agents ADD COLUMN last_read_log_id TEXT`)
 	return nil
 }
 

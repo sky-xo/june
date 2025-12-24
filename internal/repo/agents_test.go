@@ -80,6 +80,35 @@ func TestUpdateAgentSessionID(t *testing.T) {
 	}
 }
 
+func TestAgentLastReadLogID(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	agent := Agent{
+		ID:     "test-agent",
+		Type:   "claude",
+		Task:   "test task",
+		Status: "busy",
+	}
+	if err := CreateAgent(db, agent); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+
+	// Update last read log ID
+	if err := UpdateAgentLastReadLogID(db, "test-agent", "log-123"); err != nil {
+		t.Fatalf("update last read: %v", err)
+	}
+
+	// Verify it was saved
+	got, err := GetAgent(db, "test-agent")
+	if err != nil {
+		t.Fatalf("get agent: %v", err)
+	}
+	if !got.LastReadLogID.Valid || got.LastReadLogID.String != "log-123" {
+		t.Errorf("expected LastReadLogID='log-123', got %v", got.LastReadLogID)
+	}
+}
+
 func TestDeleteAgent(t *testing.T) {
 	conn := openTestDB(t)
 	defer conn.Close()

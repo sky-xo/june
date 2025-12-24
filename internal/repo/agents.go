@@ -5,24 +5,25 @@ import (
 )
 
 type Agent struct {
-	ID          string
-	Type        string
-	Task        string
-	Status      string
-	SessionID   sql.NullString
-	Pid         sql.NullInt64
-	CompletedAt sql.NullTime
+	ID            string
+	Type          string
+	Task          string
+	Status        string
+	SessionID     sql.NullString
+	Pid           sql.NullInt64
+	CompletedAt   sql.NullTime
+	LastReadLogID sql.NullString
 }
 
 func CreateAgent(db *sql.DB, a Agent) error {
-	_, err := db.Exec(`INSERT INTO agents (id, type, task, status, session_id, pid, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, a.ID, a.Type, a.Task, a.Status, a.SessionID, a.Pid, a.CompletedAt)
+	_, err := db.Exec(`INSERT INTO agents (id, type, task, status, session_id, pid, completed_at, last_read_log_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, a.ID, a.Type, a.Task, a.Status, a.SessionID, a.Pid, a.CompletedAt, a.LastReadLogID)
 	return err
 }
 
 func GetAgent(db *sql.DB, id string) (Agent, error) {
 	var a Agent
-	err := db.QueryRow(`SELECT id, type, task, status, session_id, pid, completed_at FROM agents WHERE id = ?`, id).
-		Scan(&a.ID, &a.Type, &a.Task, &a.Status, &a.SessionID, &a.Pid, &a.CompletedAt)
+	err := db.QueryRow(`SELECT id, type, task, status, session_id, pid, completed_at, last_read_log_id FROM agents WHERE id = ?`, id).
+		Scan(&a.ID, &a.Type, &a.Task, &a.Status, &a.SessionID, &a.Pid, &a.CompletedAt, &a.LastReadLogID)
 	return a, err
 }
 
@@ -41,8 +42,13 @@ func UpdateAgentSessionID(db *sql.DB, id string, sessionID string) error {
 	return err
 }
 
+func UpdateAgentLastReadLogID(db *sql.DB, id, logID string) error {
+	_, err := db.Exec(`UPDATE agents SET last_read_log_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, logID, id)
+	return err
+}
+
 func ListAgents(db *sql.DB) ([]Agent, error) {
-	rows, err := db.Query(`SELECT id, type, task, status, session_id, pid, completed_at FROM agents ORDER BY created_at ASC`)
+	rows, err := db.Query(`SELECT id, type, task, status, session_id, pid, completed_at, last_read_log_id FROM agents ORDER BY created_at ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +57,7 @@ func ListAgents(db *sql.DB) ([]Agent, error) {
 	var out []Agent
 	for rows.Next() {
 		var a Agent
-		if err := rows.Scan(&a.ID, &a.Type, &a.Task, &a.Status, &a.SessionID, &a.Pid, &a.CompletedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Type, &a.Task, &a.Status, &a.SessionID, &a.Pid, &a.CompletedAt, &a.LastReadLogID); err != nil {
 			return nil, err
 		}
 		out = append(out, a)
