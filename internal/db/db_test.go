@@ -33,12 +33,15 @@ func TestEnsureSchema(t *testing.T) {
 	if !columnExists(t, conn, "agents", "completed_at") {
 		t.Fatalf("agents.completed_at column missing")
 	}
+	if !columnExists(t, conn, "agents", "archived_at") {
+		t.Fatalf("agents.archived_at column missing")
+	}
 	if !columnExists(t, conn, "messages", "to_id") {
 		t.Fatalf("messages.to_id column missing")
 	}
 
 	// Verify indexes exist
-	indexes := []string{"idx_messages_created", "idx_agents_status", "idx_logs_agent", "idx_agents_cleanup", "idx_messages_to"}
+	indexes := []string{"idx_messages_created", "idx_agents_status", "idx_logs_agent", "idx_agents_cleanup", "idx_agents_archived", "idx_messages_to"}
 	for _, idx := range indexes {
 		if err := conn.QueryRow("SELECT name FROM sqlite_master WHERE type='index' AND name=?", idx).Scan(&name); err != nil {
 			t.Fatalf("index %q missing: %v", idx, err)

@@ -192,3 +192,25 @@ func TestAgentFailure(t *testing.T) {
 		t.Fatalf("expected completed_at to be set")
 	}
 }
+
+func TestArchiveAgentSetsArchivedAt(t *testing.T) {
+	conn := openTestDB(t)
+	defer conn.Close()
+
+	err := CreateAgent(conn, Agent{ID: "arch-me", Type: "claude", Task: "task", Status: "complete"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	if err := ArchiveAgent(conn, "arch-me"); err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+
+	got, err := GetAgent(conn, "arch-me")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !got.ArchivedAt.Valid {
+		t.Fatalf("expected archived_at to be set")
+	}
+}
