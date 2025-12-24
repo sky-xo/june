@@ -94,15 +94,15 @@ func cleanupOldData(conn *sql.DB) {
 		`DELETE FROM logs
 		WHERE agent_id IN (
 			SELECT id FROM agents
-			WHERE completed_at < datetime('now', '-7 days')
+			WHERE archived_at < datetime('now', '-7 days')
 		);`,
 		`DELETE FROM messages
 		WHERE to_id IN (
 			SELECT id FROM agents
-			WHERE completed_at < datetime('now', '-7 days')
+			WHERE archived_at < datetime('now', '-7 days')
 		);`,
 		`DELETE FROM agents
-		WHERE completed_at < datetime('now', '-7 days');`,
+		WHERE archived_at < datetime('now', '-7 days');`,
 	}
 
 	for _, stmt := range statements {

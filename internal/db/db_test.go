@@ -107,15 +107,23 @@ func TestCleanupOnOpen(t *testing.T) {
 		t.Fatalf("open: %v", err)
 	}
 
+	oldArchived := sqliteTime(time.Now().Add(-8 * 24 * time.Hour))
 	oldCompleted := sqliteTime(time.Now().Add(-8 * 24 * time.Hour))
 	recentCompleted := sqliteTime(time.Now().Add(-2 * 24 * time.Hour))
 
 	_, err = conn.Exec(
-		`INSERT INTO agents (id, type, task, status, completed_at) VALUES (?, ?, ?, ?, ?)`,
-		"agent-old", "codex", "old task", "complete", oldCompleted,
+		`INSERT INTO agents (id, type, task, status, completed_at, archived_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		"agent-archived-old", "codex", "old archived task", "complete", oldCompleted, oldArchived,
 	)
 	if err != nil {
-		t.Fatalf("insert old agent: %v", err)
+		t.Fatalf("insert archived old agent: %v", err)
+	}
+	_, err = conn.Exec(
+		`INSERT INTO agents (id, type, task, status, completed_at) VALUES (?, ?, ?, ?, ?)`,
+		"agent-completed-old", "codex", "old completed task", "complete", oldCompleted,
+	)
+	if err != nil {
+		t.Fatalf("insert old completed agent: %v", err)
 	}
 	_, err = conn.Exec(
 		`INSERT INTO agents (id, type, task, status, completed_at) VALUES (?, ?, ?, ?, ?)`,
@@ -134,10 +142,17 @@ func TestCleanupOnOpen(t *testing.T) {
 
 	_, err = conn.Exec(
 		`INSERT INTO logs (id, agent_id, direction, content) VALUES (?, ?, ?, ?)`,
-		"entry-old", "agent-old", "out", "old output",
+		"entry-archived-old", "agent-archived-old", "out", "old output",
 	)
 	if err != nil {
-		t.Fatalf("insert old log entry: %v", err)
+		t.Fatalf("insert archived old log entry: %v", err)
+	}
+	_, err = conn.Exec(
+		`INSERT INTO logs (id, agent_id, direction, content) VALUES (?, ?, ?, ?)`,
+		"entry-completed-old", "agent-completed-old", "out", "old completed output",
+	)
+	if err != nil {
+		t.Fatalf("insert old completed log entry: %v", err)
 	}
 	_, err = conn.Exec(
 		`INSERT INTO logs (id, agent_id, direction, content) VALUES (?, ?, ?, ?)`,
@@ -149,10 +164,17 @@ func TestCleanupOnOpen(t *testing.T) {
 
 	_, err = conn.Exec(
 		`INSERT INTO messages (id, from_id, to_id, type, content) VALUES (?, ?, ?, ?, ?)`,
-		"msg-old", "orchestrator", "agent-old", "prompt", "old prompt",
+		"msg-archived-old", "orchestrator", "agent-archived-old", "prompt", "old prompt",
 	)
 	if err != nil {
-		t.Fatalf("insert old message: %v", err)
+		t.Fatalf("insert archived old message: %v", err)
+	}
+	_, err = conn.Exec(
+		`INSERT INTO messages (id, from_id, to_id, type, content) VALUES (?, ?, ?, ?, ?)`,
+		"msg-completed-old", "orchestrator", "agent-completed-old", "prompt", "old completed prompt",
+	)
+	if err != nil {
+		t.Fatalf("insert old completed message: %v", err)
 	}
 	_, err = conn.Exec(
 		`INSERT INTO messages (id, from_id, to_id, type, content) VALUES (?, ?, ?, ?, ?)`,
@@ -179,8 +201,11 @@ func TestCleanupOnOpen(t *testing.T) {
 	}
 	defer conn.Close()
 
-	if countRows(t, conn, "SELECT COUNT(*) FROM agents WHERE id='agent-old'") != 0 {
-		t.Fatalf("expected old agent to be deleted")
+	if countRows(t, conn, "SELECT COUNT(*) FROM agents WHERE id='agent-archived-old'") != 0 {
+		t.Fatalf("expected archived old agent to be deleted")
+	}
+	if countRows(t, conn, "SELECT COUNT(*) FROM agents WHERE id='agent-completed-old'") != 1 {
+		t.Fatalf("expected old completed agent to remain")
 	}
 	if countRows(t, conn, "SELECT COUNT(*) FROM agents WHERE id='agent-recent'") != 1 {
 		t.Fatalf("expected recent agent to remain")
@@ -189,15 +214,21 @@ func TestCleanupOnOpen(t *testing.T) {
 		t.Fatalf("expected active agent to remain")
 	}
 
-	if countRows(t, conn, "SELECT COUNT(*) FROM logs WHERE id='entry-old'") != 0 {
-		t.Fatalf("expected old log entry to be deleted")
+	if countRows(t, conn, "SELECT COUNT(*) FROM logs WHERE id='entry-archived-old'") != 0 {
+		t.Fatalf("expected archived old log entry to be deleted")
+	}
+	if countRows(t, conn, "SELECT COUNT(*) FROM logs WHERE id='entry-completed-old'") != 1 {
+		t.Fatalf("expected old completed log entry to remain")
 	}
 	if countRows(t, conn, "SELECT COUNT(*) FROM logs WHERE id='entry-recent'") != 1 {
 		t.Fatalf("expected recent log entry to remain")
 	}
 
-	if countRows(t, conn, "SELECT COUNT(*) FROM messages WHERE id='msg-old'") != 0 {
-		t.Fatalf("expected old message to be deleted")
+	if countRows(t, conn, "SELECT COUNT(*) FROM messages WHERE id='msg-archived-old'") != 0 {
+		t.Fatalf("expected archived old message to be deleted")
+	}
+	if countRows(t, conn, "SELECT COUNT(*) FROM messages WHERE id='msg-completed-old'") != 1 {
+		t.Fatalf("expected old completed message to remain")
 	}
 	if countRows(t, conn, "SELECT COUNT(*) FROM messages WHERE id='msg-recent'") != 1 {
 		t.Fatalf("expected recent message to remain")
