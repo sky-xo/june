@@ -18,7 +18,7 @@ import (
 
 const (
 	mainChannelID    = "main"
-	channelListWidth = 16
+	channelListWidth = 20
 
 	// Panel focus indices (future-proof for 3-panel layout)
 	panelAgents   = 0 // Left: channel/agent list
@@ -28,10 +28,6 @@ const (
 
 // Styling
 var (
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("12"))
-
 	panelTitleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("6")).
@@ -286,9 +282,6 @@ func (m model) View() string {
 
 	leftWidth, rightWidth, panelHeight, contentHeight := m.layout()
 
-	// Title
-	title := titleStyle.Render("Otto")
-
 	// Left panel: Channels
 	channelsTitle := panelTitleStyle.Width(leftWidth - 2).Render("Channels")
 	channelsContent := m.renderChannels(leftWidth-2, contentHeight)
@@ -327,7 +320,7 @@ func (m model) View() string {
 	}
 	status := statusBarStyle.Render(statusText)
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, panels, status)
+	return lipgloss.JoinVertical(lipgloss.Left, panels, status)
 }
 
 func (m model) renderChannels(width, height int) string {
@@ -541,8 +534,8 @@ func (m *model) updateViewportContent() {
 }
 
 func (m model) layout() (leftWidth, rightWidth, panelHeight, contentHeight int) {
-	// Height: subtract title (1) + status bar (1) + border top/bottom (2) = 4
-	panelHeight = m.height - 4
+	// Height: subtract status bar (1) + border top/bottom (2) = 3
+	panelHeight = m.height - 3
 	if panelHeight < 3 {
 		panelHeight = 3
 	}
