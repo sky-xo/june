@@ -26,6 +26,7 @@ func Execute() {
 	rootCmd.AddCommand(commands.NewLogCmd())
 	rootCmd.AddCommand(commands.NewPeekCmd())
 	rootCmd.AddCommand(commands.NewInstallSkillsCmd())
+	rootCmd.AddCommand(commands.NewWorkerSpawnCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

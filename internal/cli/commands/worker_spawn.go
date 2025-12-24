@@ -1,0 +1,215 @@
+package commands
+
+import (
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	ottoexec "otto/internal/exec"
+	"otto/internal/repo"
+
+	"github.com/google/uuid"
+	"github.com/spf13/cobra"
+)
+
+func NewWorkerSpawnCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:    "worker-spawn <agent-id>",
+		Short:  "Internal worker command for detached spawn",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			agentID := args[0]
+
+			conn, err := openDB()
+			if err != nil {
+				return err
+			}
+			defer conn.Close()
+
+			return runWorkerSpawn(conn, &ottoexec.DefaultRunner{}, agentID)
+		},
+	}
+	return cmd
+}
+
+func runWorkerSpawn(db *sql.DB, runner ottoexec.Runner, agentID string) error {
+	// Load agent
+	agent, err := repo.GetAgent(db, agentID)
+	if err != nil {
+		return fmt.Errorf("load agent: %w", err)
+	}
+
+	// Get latest prompt message
+	messages, err := repo.ListMessages(db, repo.MessageFilter{
+		Type:  "prompt",
+		ToID:  agentID,
+		Limit: 1,
+	})
+	if err != nil {
+		return fmt.Errorf("load prompt: %w", err)
+	}
+	if len(messages) == 0 {
+		return errors.New("no prompt message found for agent")
+	}
+	promptContent := messages[0].Content
+
+	// Store prompt as input log entry
+	if err := repo.CreateLogEntry(db, agentID, "in", "", promptContent); err != nil {
+		return fmt.Errorf("store prompt log: %w", err)
+	}
+
+	// Build command based on agent type
+	cmdArgs := buildSpawnCommand(agent.Type, promptContent, agent.SessionID.String)
+
+	// Run with transcript capture (different logic for codex vs claude)
+	if agent.Type == "codex" {
+		return runWorkerCodexSpawn(db, runner, agentID, cmdArgs)
+	}
+
+	// For Claude agents, use standard transcript capture
+	pid, output, wait, err := runner.StartWithTranscriptCapture(cmdArgs[0], cmdArgs[1:]...)
+	if err != nil {
+		return fmt.Errorf("spawn %s: %w", agent.Type, err)
+	}
+
+	// Update agent with PID
+	_ = repo.UpdateAgentPid(db, agentID, pid)
+
+	// Consume transcript entries
+	transcriptDone := consumeTranscriptEntries(db, agentID, output, nil)
+
+	// Wait for process
+	if err := wait(); err != nil {
+		if consumeErr := <-transcriptDone; consumeErr != nil {
+			return fmt.Errorf("spawn %s: %w", agent.Type, consumeErr)
+		}
+		// Post failure message and mark agent failed
+		msg := repo.Message{
+			ID:           uuid.New().String(),
+			FromID:       agentID,
+			Type:         "exit",
+			Content:      fmt.Sprintf("process failed: %v", err),
+			MentionsJSON: "[]",
+			ReadByJSON:   "[]",
+		}
+		_ = repo.CreateMessage(db, msg)
+		_ = repo.SetAgentFailed(db, agentID)
+		return fmt.Errorf("spawn %s: %w", agent.Type, err)
+	}
+
+	if consumeErr := <-transcriptDone; consumeErr != nil {
+		return fmt.Errorf("spawn %s: %w", agent.Type, consumeErr)
+	}
+
+	// Success - post completion message
+	msg := repo.Message{
+		ID:           uuid.New().String(),
+		FromID:       agentID,
+		Type:         "exit",
+		Content:      "process completed successfully",
+		MentionsJSON: "[]",
+		ReadByJSON:   "[]",
+	}
+	_ = repo.CreateMessage(db, msg)
+	_ = repo.SetAgentComplete(db, agentID)
+
+	return nil
+}
+
+func runWorkerCodexSpawn(db *sql.DB, runner ottoexec.Runner, agentID string, cmdArgs []string) error {
+	// Create temp directory for CODEX_HOME to bypass superpowers
+	tempDir, err := os.MkdirTemp("", "otto-codex-*")
+	if err != nil {
+		return fmt.Errorf("create temp CODEX_HOME: %w", err)
+	}
+	defer os.RemoveAll(tempDir) // Cleanup after agent process exits
+
+	// Copy auth.json from real CODEX_HOME to preserve credentials
+	realCodexHome := os.Getenv("CODEX_HOME")
+	if realCodexHome == "" {
+		home, _ := os.UserHomeDir()
+		realCodexHome = filepath.Join(home, ".codex")
+	}
+	authSrc := filepath.Join(realCodexHome, "auth.json")
+	if authData, err := os.ReadFile(authSrc); err == nil {
+		_ = os.WriteFile(filepath.Join(tempDir, "auth.json"), authData, 0600)
+	}
+
+	// Set CODEX_HOME to temp dir to bypass ~/.codex/AGENTS.md
+	env := append(os.Environ(), fmt.Sprintf("CODEX_HOME=%s", tempDir))
+
+	// Start with transcript capture to parse JSON output
+	pid, output, wait, err := runner.StartWithTranscriptCaptureEnv(cmdArgs[0], env, cmdArgs[1:]...)
+	if err != nil {
+		os.RemoveAll(tempDir) // Cleanup temp dir on spawn failure
+		return fmt.Errorf("spawn codex: %w", err)
+	}
+
+	// Update agent with PID
+	_ = repo.UpdateAgentPid(db, agentID, pid)
+
+	// Parse output stream for thread_id in background
+	threadIDCaptured := false
+	threadIDParser := func(line string) {
+		if threadIDCaptured {
+			return
+		}
+		var event map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			return
+		}
+		if eventType, ok := event["type"].(string); ok && eventType == "thread.started" {
+			if threadID, ok := event["thread_id"].(string); ok && threadID != "" {
+				_ = repo.UpdateAgentSessionID(db, agentID, threadID)
+				threadIDCaptured = true
+			}
+		}
+	}
+
+	transcriptDone := consumeTranscriptEntries(db, agentID, output, threadIDParser)
+
+	// Wait for process
+	if err := wait(); err != nil {
+		if consumeErr := <-transcriptDone; consumeErr != nil {
+			return fmt.Errorf("spawn codex: %w", consumeErr)
+		}
+		// Post failure message and mark agent failed
+		msg := repo.Message{
+			ID:           uuid.New().String(),
+			FromID:       agentID,
+			Type:         "exit",
+			Content:      fmt.Sprintf("process failed: %v", err),
+			MentionsJSON: "[]",
+			ReadByJSON:   "[]",
+		}
+		_ = repo.CreateMessage(db, msg)
+		_ = repo.SetAgentFailed(db, agentID)
+		return fmt.Errorf("spawn codex: %w", err)
+	}
+
+	if consumeErr := <-transcriptDone; consumeErr != nil {
+		return fmt.Errorf("spawn codex: %w", consumeErr)
+	}
+
+	// If we didn't capture thread_id, log a warning (but don't fail)
+	if !threadIDCaptured {
+		fmt.Fprintf(os.Stderr, "Warning: Could not capture thread_id for Codex agent %s\n", agentID)
+	}
+
+	msg := repo.Message{
+		ID:           uuid.New().String(),
+		FromID:       agentID,
+		Type:         "exit",
+		Content:      "process completed successfully",
+		MentionsJSON: "[]",
+		ReadByJSON:   "[]",
+	}
+	_ = repo.CreateMessage(db, msg)
+	_ = repo.SetAgentComplete(db, agentID)
+
+	return nil
+}
