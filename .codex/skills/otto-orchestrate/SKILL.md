@@ -1,11 +1,33 @@
 ---
 name: otto-orchestrate
-description: Use when triggering subagents
+description: Use when spawning or coordinating otto subagents to delegate work, isolate context, or run parallel tasks.
 ---
 
-# Using Otto
+# Otto Orchestration
 
-Otto spawns and monitors AI agents. Use it when you need parallel workers or want to delegate tasks.
+## Overview
+
+Otto spawns and monitors subagents. The core principle is strict task isolation: give each agent only the context it needs and nothing more.
+
+## When to Use
+
+- You need parallel workers for independent tasks.
+- You want to isolate context (e.g., reviews vs implementation).
+- You need detached execution and later polling.
+
+Do not use for quick inline questions or tightly coupled edits.
+
+## Scope Control (Critical)
+
+**Do NOT attach full plan files.** Paste only the Task N text into the prompt.
+
+**Always include explicit guardrails:**
+- “Do not read or act on other tasks.”
+- “Stop after Task N and report.”
+
+**Attach only required files.** If a file is not directly needed, omit it.
+
+If the agent asks for more context, answer directly and re-dispatch with the minimal additions.
 
 ## Spawn an Agent
 
@@ -16,8 +38,23 @@ otto spawn codex "your task description" --detach
 
 Options:
 - `--name <name>` - Custom ID (e.g., `--name reviewer`)
-- `--files <paths>` - Attach relevant files
-- `--context <text>` - Extra context
+- `--files <paths>` - Attach relevant files (keep minimal)
+- `--context <text>` - Extra context (short, task-scoped)
+
+## Example (Task-Scoped Prompt)
+
+```bash
+cat <<'EOF' | otto spawn codex --name task-1 --detach --files "path/to/file.go" ""
+You are implementing Task 1: Add archived_at column.
+
+Task text (ONLY Task 1):
+[paste Task 1 text here]
+
+Rules:
+- Do not read or act on other tasks.
+- Stop after Task 1 and report.
+EOF
+```
 
 ## Check Status
 
@@ -59,8 +96,30 @@ otto peek feature-x            # Read new output
 otto prompt feature-x "also add tests"
 ```
 
-## Tips
+## Rationalizations Observed (Baseline)
 
-- Use `--name` for readable IDs instead of auto-generated slugs
-- Check `otto status` before `peek` to avoid polling completed agents
-- Agents see each other's messages - use `@agent-id` to mention specific agents
+| Observed behavior | Reality |
+| --- | --- |
+| “Updated retention cleanup to use archived_at…” | Out of scope when asked to only commit Task 1 changes. |
+
+## Red Flags - Stop and Narrow Scope
+
+- You are attaching the full plan file.
+- The prompt mentions multiple tasks at once.
+- The agent starts “helpfully” doing adjacent tasks.
+
+## Quick Reference
+
+| Action | Command |
+| --- | --- |
+| Spawn agent | `otto spawn codex "task" --detach` |
+| Status | `otto status` |
+| Read new output | `otto peek <agent-id>` |
+| Full log | `otto log <agent-id>` |
+| Follow-up | `otto prompt <agent-id> "message"` |
+
+## Common Mistakes
+
+- **Attaching the full plan file:** leads to task drift and scope creep.
+- **Vague prompts:** “take a look around” invites extra work.
+- **Missing stop rule:** agents continue beyond the assigned task.

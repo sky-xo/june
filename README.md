@@ -47,11 +47,12 @@ otto watch --ui
 | Command | Description |
 |---------|-------------|
 | `otto spawn <type> "<task>"` | Spawn a new claude/codex agent |
-| `otto status` | List agents and their states |
+| `otto status [--all] [--archive]` | List agent status; use `--all` to include archived, `--archive` to archive complete/failed agents shown |
 | `otto messages` | View message stream |
 | `otto watch [--ui]` | Monitor messages in real-time |
 | `otto prompt <agent> "<msg>"` | Send prompt to an agent |
 | `otto attach <agent>` | Get command to attach to agent session |
+| `otto archive <agent>` | Archive a completed/failed agent |
 | `otto say "<msg>"` | Post message as orchestrator |
 | `otto ask --id <agent> "<q>"` | Agent asks a question |
 | `otto complete --id <agent> "<summary>"` | Agent marks task done |

@@ -18,6 +18,7 @@ import (
 
 const (
 	mainChannelID    = "main"
+	archivedChannelID = "__archived__"
 	channelListWidth = 20
 
 	// Panel focus indices (future-proof for 3-panel layout)
@@ -112,6 +113,7 @@ type model struct {
 	height            int
 	cursorIndex       int
 	activeChannelID   string
+	archivedExpanded  bool
 	focusedPanel      int // Panel index (panelAgents, panelMessages, etc.)
 	err               error
 	viewport          viewport.Model
@@ -126,6 +128,7 @@ func NewModel(db *sql.DB) model {
 		transcripts:       map[string][]repo.LogEntry{},
 		lastTranscriptIDs: map[string]string{},
 		activeChannelID:   mainChannelID,
+		archivedExpanded:  false,
 		focusedPanel:      panelMessages, // Default to content panel
 		viewport:          vp,
 	}
@@ -425,7 +428,17 @@ func (m model) channels() []channel {
 		return channels
 	}
 
-	ordered := sortAgentsByStatus(m.agents)
+	activeAgents := make([]repo.Agent, 0, len(m.agents))
+	archivedAgents := make([]repo.Agent, 0, len(m.agents))
+	for _, agent := range m.agents {
+		if agent.ArchivedAt.Valid {
+			archivedAgents = append(archivedAgents, agent)
+		} else {
+			activeAgents = append(activeAgents, agent)
+		}
+	}
+
+	ordered := sortAgentsByStatus(activeAgents)
 	for _, agent := range ordered {
 		channels = append(channels, channel{
 			ID:     agent.ID,
@@ -433,6 +446,25 @@ func (m model) channels() []channel {
 			Kind:   "agent",
 			Status: agent.Status,
 		})
+	}
+
+	if len(archivedAgents) > 0 {
+		channels = append(channels, channel{
+			ID:   archivedChannelID,
+			Name: fmt.Sprintf("Archived (%d)", len(archivedAgents)),
+			Kind: "archived_header",
+		})
+		if m.archivedExpanded {
+			orderedArchived := sortArchivedAgents(archivedAgents)
+			for _, agent := range orderedArchived {
+				channels = append(channels, channel{
+					ID:     agent.ID,
+					Name:   agent.ID,
+					Kind:   "agent",
+					Status: agent.Status,
+				})
+			}
+		}
 	}
 	return channels
 }
@@ -447,7 +479,7 @@ func (m model) activeChannelLabel() string {
 func (m model) renderChannelLine(ch channel, width int, cursor, active bool) string {
 	label := ch.Name
 	labelWidth := width
-	if ch.Kind != "main" {
+	if ch.Kind != "main" && ch.Kind != "archived_header" {
 		labelWidth = width - 2
 		if labelWidth < 1 {
 			labelWidth = 1
@@ -459,9 +491,12 @@ func (m model) renderChannelLine(ch channel, width int, cursor, active bool) str
 	if active {
 		labelStyle = channelActiveStyle
 	}
+	if ch.Kind == "archived_header" {
+		labelStyle = mutedStyle
+	}
 
 	line := labelStyle.Render(label)
-	if ch.Kind != "main" {
+	if ch.Kind != "main" && ch.Kind != "archived_header" {
 		indicator, indicatorStyle := channelIndicator(ch)
 		line = fmt.Sprintf("%s %s", indicatorStyle.Render(indicator), line)
 	}
@@ -495,6 +530,10 @@ func (m *model) activateSelection() tea.Cmd {
 		return nil
 	}
 	selected := channels[m.cursorIndex]
+	if selected.Kind == "archived_header" {
+		m.archivedExpanded = !m.archivedExpanded
+		return nil
+	}
 	m.activeChannelID = selected.ID
 
 	// Update viewport content when switching channels
@@ -611,6 +650,26 @@ func sortAgentsByStatus(agents []repo.Agent) []repo.Agent {
 		}
 		if iOrder != jOrder {
 			return iOrder < jOrder
+		}
+		return ordered[i].ID < ordered[j].ID
+	})
+	return ordered
+}
+
+func sortArchivedAgents(agents []repo.Agent) []repo.Agent {
+	ordered := make([]repo.Agent, len(agents))
+	copy(ordered, agents)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		iTime := ordered[i].ArchivedAt.Time
+		jTime := ordered[j].ArchivedAt.Time
+		if !ordered[i].ArchivedAt.Valid {
+			iTime = time.Time{}
+		}
+		if !ordered[j].ArchivedAt.Valid {
+			jTime = time.Time{}
+		}
+		if !iTime.Equal(jTime) {
+			return iTime.After(jTime)
 		}
 		return ordered[i].ID < ordered[j].ID
 	})

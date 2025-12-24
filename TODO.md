@@ -35,7 +35,11 @@ Features that reduce friction once core loop is validated.
 - [x] otto should also work with codex being the orchestrator
 - [x] TUI: agents panel on left side
 - [ ] Permissions model: align Codex/Claude sandbox/permissions behavior and document skill bypass
-- [ ] TUI: 3-line task descriptions (less truncation)
+- [ ] `otto status` should list most recent agents first
+- [ ] Improve otto agent failure diagnostics (capture exit codes, propagate stderr on agent exit, persist failure reason)
+- [ ] Allow archiving idle agents (still block busy/blocked from archiving)
+- [ ] Follow-up polish: `otto status --all --archive` should show newly archived entries with `(archived)` in the same output
+- [ ] Follow-up polish: `otto status --archive` should attempt to archive all eligible agents and report combined errors
 
 ## V2 - Full Experience
 
@@ -86,3 +90,4 @@ Priority items for next session:
 1. **Codex flag** - Add `--skip-git-repo-check` to reduce startup time
 2. **Test interrupt with Codex** - Verify interrupt/resume flow works end-to-end
 3. **TUI improvements** - 3-line task descriptions
+4. **Worktree scope** - Use git common dir to keep DB under `~/.otto/orchestrators/<repo>/<branch>` even in worktrees
