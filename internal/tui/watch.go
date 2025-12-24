@@ -21,8 +21,8 @@ const (
 	channelListWidth = 16
 
 	// Panel focus indices (future-proof for 3-panel layout)
-	panelAgents   = 0  // Left: channel/agent list
-	panelMessages = 1  // Right: content/messages
+	panelAgents   = 0 // Left: channel/agent list
+	panelMessages = 1 // Right: content/messages
 	// panelTodos = 2  // Future: todo list
 )
 
@@ -64,6 +64,14 @@ var (
 
 	statusFailedStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("1"))
+
+	focusedBorderStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("6")) // Cyan
+
+	unfocusedBorderStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("8")) // Dim
 )
 
 // usernameColor returns a consistent ANSI color for a given username
@@ -285,8 +293,11 @@ func (m model) View() string {
 	channelsTitle := panelTitleStyle.Width(leftWidth - 2).Render("Channels")
 	channelsContent := m.renderChannels(leftWidth-2, contentHeight)
 
-	leftPanel := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
+	leftBorderStyle := unfocusedBorderStyle
+	if m.focusedPanel == panelAgents {
+		leftBorderStyle = focusedBorderStyle
+	}
+	leftPanel := leftBorderStyle.
 		Width(leftWidth).
 		Height(panelHeight).
 		Render(channelsTitle + "\n" + channelsContent)
@@ -298,8 +309,11 @@ func (m model) View() string {
 	// Use viewport for content area
 	content := m.viewport.View()
 
-	rightPanel := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
+	rightBorderStyle := unfocusedBorderStyle
+	if m.focusedPanel == panelMessages {
+		rightBorderStyle = focusedBorderStyle
+	}
+	rightPanel := rightBorderStyle.
 		Width(rightWidth).
 		Height(panelHeight).
 		MaxWidth(rightWidth).
