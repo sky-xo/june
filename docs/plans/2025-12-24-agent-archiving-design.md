@@ -4,7 +4,7 @@
 
 ## Summary
 
-Make `otto status` an inbox by hiding archived agents by default. Agents move to an archived state only when the orchestrator explicitly archives them (single agent or bulk). Archived agents can be expanded in the TUI and listed with `--all`. Retention cleanup remains time-based (7 days) and independent of archive state.
+Make `otto status` an inbox by hiding archived agents by default. Agents move to an archived state only when the orchestrator explicitly archives them (single agent or bulk). Archived agents can be expanded in the TUI and listed with `--all`. Retention cleanup deletes agents only after they have been archived for 7 days.
 
 ## Goals
 

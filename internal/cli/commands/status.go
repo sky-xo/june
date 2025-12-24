@@ -17,7 +17,7 @@ var (
 func NewStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "List agents and their statuses",
+		Short: "List agents and their statuses (archived hidden by default)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			conn, err := openDB()
 			if err != nil {
