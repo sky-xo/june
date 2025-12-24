@@ -306,10 +306,15 @@ Finalized through discussion with Codex agents:
   - prompt: stores prompts, resumes agents with transcript capture
   - New transcript_capture.go: storePrompt, consumeTranscriptEntries helpers
 
-### Pending
-- **FIX**: Same-second pagination bug - SinceID uses `created_at >` which skips same-second records
-- **Task 4**: TUI redesign with channel view (left: channel list, right: content)
-- **Task 5**: Cleanup job (7-day retention, run opportunistically on DB open)
+### Fixed - TUI BUGS (2025-12-24)
+- **FIXED: Agents not visible** - moveCursor() had value receiver; cursor changes were lost. Changed to pointer receiver.
+- **VERIFIED: Scrolling** - scrollContent() already had pointer receiver, was working correctly.
+
+### Pending Follow-ups
+- **FIX: maxScroll() width** - Uses hardcoded 80 instead of actual content width
+- **FIX: Error display** - Errors stored in m.err but never displayed in UI
+- **FIX: Test coverage** - Currently ~15%, target 60%+
+- **FIX: Composite indexes** - Add for pagination performance
 
 ### Review Notes
 Using dual Claude+Codex reviews. Key findings:

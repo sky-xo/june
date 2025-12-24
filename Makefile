@@ -22,4 +22,4 @@ clean:
 
 # Build and run the TUI watch
 watch:
-	go build -o otto ./cmd/otto && ./otto watch --ui
+	go build -o otto ./cmd/otto && ./otto watch

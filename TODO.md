@@ -32,6 +32,7 @@ Features that reduce friction once core loop is validated.
 - [x] Agent statuses: busy/idle/blocked (replace working/waiting)
 - [x] CODEX_HOME bypass for Codex agents (skip superpowers loading)
 - [x] Add `--skip-git-repo-check` to Codex invocation
+- [ ] Permissions model: align Codex/Claude sandbox/permissions behavior and document skill bypass
 - [ ] TUI: 3-line task descriptions (less truncation)
 - [ ] TUI: agents panel on left side
 - [ ] otto should also work with codex being the orchestrator
@@ -73,6 +74,18 @@ Design docs for recently completed work:
 ## Next Up
 
 Priority items for next session:
+
+### TUI Channel View BUGS (User-reported 2025-12-23) - FIXED
+- [x] **BUG: Agents not visible** - Fixed: moveCursor had value receiver, cursor changes were lost
+- [x] **BUG: Scrolling not working** - Verified working: scrollContent already had pointer receiver
+
+### TUI Channel View Follow-ups (from code review)
+- [ ] Fix `maxScroll()` to use actual content width instead of hardcoded 80
+- [ ] Display errors in UI (m.err stored but never shown)
+- [ ] Add test coverage (~15% → 60%+ target)
+- [ ] Add composite indexes for pagination performance
+
+### Other
 1. **Codex flag** - Add `--skip-git-repo-check` to reduce startup time
 2. **Test interrupt with Codex** - Verify interrupt/resume flow works end-to-end
-3. **TUI improvements** - 3-line task descriptions, agents panel
+3. **TUI improvements** - 3-line task descriptions
