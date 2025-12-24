@@ -11,6 +11,7 @@ import (
 	"otto/internal/process"
 	"otto/internal/repo"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -98,23 +99,24 @@ type model struct {
 	transcripts       map[string][]repo.TranscriptEntry
 	lastMessageID     string
 	lastTranscriptIDs map[string]string
-	scrollOffsets     map[string]int
 	width             int
 	height            int
 	cursorIndex       int
 	activeChannelID   string
 	err               error
+	viewport          viewport.Model
 }
 
 func NewModel(db *sql.DB) model {
+	vp := viewport.New(0, 0)
 	return model{
 		db:                db,
 		messages:          []repo.Message{},
 		agents:            []repo.Agent{},
 		transcripts:       map[string][]repo.TranscriptEntry{},
 		lastTranscriptIDs: map[string]string{},
-		scrollOffsets:     map[string]int{},
 		activeChannelID:   mainChannelID,
+		viewport:          vp,
 	}
 }
 
@@ -127,33 +129,53 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "up", "k":
+			// Navigate channel list only
 			m.moveCursor(-1)
 		case "down", "j":
+			// Navigate channel list only
 			m.moveCursor(1)
 		case "enter":
 			return m, m.activateSelection()
 		case "esc":
 			m.activeChannelID = mainChannelID
 			m.cursorIndex = 0
+			m.updateViewportContent()
 		case "g":
-			m.scrollOffsets[m.activeChannelID] = 0
+			// Scroll content to top
+			m.viewport.GotoTop()
 		case "G":
-			m.scrollOffsets[m.activeChannelID] = m.maxScroll(m.activeChannelID)
-		case "pgup", "ctrl+u":
-			m.scrollContent(-5)
-		case "pgdown", "ctrl+d":
-			m.scrollContent(5)
+			// Scroll content to bottom
+			m.viewport.GotoBottom()
+		default:
+			// Pass other keys to viewport for scrolling (pgup, pgdn, etc)
+			m.viewport, cmd = m.viewport.Update(msg)
+			return m, cmd
 		}
+
+	case tea.MouseMsg:
+		// Only pass mouse events to viewport for scrolling the right panel
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+
+		// Update viewport dimensions
+		_, rightWidth, _, contentHeight := m.layout()
+		m.viewport.Width = rightWidth - 2 // Account for border
+		m.viewport.Height = contentHeight
+
+		// Update viewport content with new dimensions
+		m.updateViewportContent()
 
 	case tickMsg:
 		cmds := []tea.Cmd{
@@ -169,22 +191,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messagesMsg:
 		if len(msg) > 0 {
-			atBottom := m.scrollOffsets[mainChannelID] >= m.maxScroll(mainChannelID)
+			atBottom := m.viewport.AtBottom()
 			m.messages = append(m.messages, msg...)
 			m.lastMessageID = msg[len(msg)-1].ID
-			if atBottom {
-				m.scrollOffsets[mainChannelID] = m.maxScroll(mainChannelID)
+			if atBottom && m.activeChannelID == mainChannelID {
+				m.updateViewportContent()
+				m.viewport.GotoBottom()
+			} else if m.activeChannelID == mainChannelID {
+				m.updateViewportContent()
 			}
 		}
 
 	case transcriptsMsg:
 		if len(msg.entries) > 0 {
 			current := m.transcripts[msg.agentID]
-			atBottom := m.scrollOffsets[msg.agentID] >= m.maxScroll(msg.agentID)
+			atBottom := m.viewport.AtBottom()
 			m.transcripts[msg.agentID] = append(current, msg.entries...)
 			m.lastTranscriptIDs[msg.agentID] = msg.entries[len(msg.entries)-1].ID
-			if atBottom {
-				m.scrollOffsets[msg.agentID] = m.maxScroll(msg.agentID)
+			if atBottom && m.activeChannelID == msg.agentID {
+				m.updateViewportContent()
+				m.viewport.GotoBottom()
+			} else if m.activeChannelID == msg.agentID {
+				m.updateViewportContent()
 			}
 		}
 
@@ -196,7 +224,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg
 	}
 
-	return m, nil
+	return m, cmd
 }
 
 func (m model) View() string {
@@ -219,20 +247,28 @@ func (m model) View() string {
 		Height(panelHeight).
 		Render(channelsTitle + "\n" + channelsContent)
 
-	// Right panel: Content
+	// Right panel: Content using viewport
 	activeLabel := m.activeChannelLabel()
 	rightTitle := panelTitleStyle.Width(rightWidth - 2).Render(activeLabel)
-	content := m.renderContent(rightWidth-2, contentHeight)
+
+	// Use viewport for content area
+	content := m.viewport.View()
 
 	rightPanel := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		Width(rightWidth).
 		Height(panelHeight).
+		MaxWidth(rightWidth).
 		Render(rightTitle + "\n" + content)
 
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
-	status := statusBarStyle.Render("q: quit | j/k: navigate | Enter: select | Esc: back to Main | g/G: top/bottom")
+	// Status bar with error display
+	statusText := "q: quit | j/k: navigate channels | Enter: select | Esc: back to Main | g/G: scroll content"
+	if m.err != nil {
+		statusText = statusFailedStyle.Render(fmt.Sprintf("Error: %v", m.err))
+	}
+	status := statusBarStyle.Render(statusText)
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, panels, status)
 }
@@ -252,23 +288,6 @@ func (m model) renderChannels(width, height int) string {
 		}
 	}
 	return strings.Join(lines, "\n")
-}
-
-func (m model) renderContent(width, height int) string {
-	if m.activeChannelID == mainChannelID {
-		return m.renderMainContent(width, height)
-	}
-	return m.renderTranscriptContent(m.activeChannelID, width, height)
-}
-
-func (m model) renderMainContent(width, height int) string {
-	lines := m.mainContentLines(width)
-	return m.renderScrollable(lines, width, height, m.scrollOffsets[mainChannelID])
-}
-
-func (m model) renderTranscriptContent(agentID string, width, height int) string {
-	lines := m.transcriptContentLines(agentID, width)
-	return m.renderScrollable(lines, width, height, m.scrollOffsets[agentID])
 }
 
 func (m model) mainContentLines(width int) []string {
@@ -291,10 +310,20 @@ func (m model) mainContentLines(width int) []string {
 		fromText := padRight(fromStyle.Render(msg.FromID), fromWidth)
 
 		content, style := formatMessage(msg)
-		content = truncateString(content, contentWidth)
-		contentText := style.Render(content)
 
-		lines = append(lines, fromText+" "+contentText)
+		// Wrap long lines to prevent overflow
+		contentLines := wrapText(content, contentWidth)
+		for i, line := range contentLines {
+			var displayLine string
+			if i == 0 {
+				// First line: show "from" prefix
+				displayLine = fromText + " " + style.Render(line)
+			} else {
+				// Continuation lines: indent to align with content
+				displayLine = strings.Repeat(" ", fromWidth+1) + style.Render(line)
+			}
+			lines = append(lines, displayLine)
+		}
 	}
 	return lines
 }
@@ -314,39 +343,23 @@ func (m model) transcriptContentLines(agentID string, width int) []string {
 	lines := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		prefix, style := transcriptPrefix(entry)
-		prefix = padRight(style.Render(prefix), prefixWidth)
-		content := truncateString(entry.Content, contentWidth)
-		lines = append(lines, prefix+" "+content)
+		prefixText := padRight(style.Render(prefix), prefixWidth)
+
+		// Wrap long lines to prevent overflow
+		contentLines := wrapText(entry.Content, contentWidth)
+		for i, line := range contentLines {
+			var displayLine string
+			if i == 0 {
+				// First line: show prefix
+				displayLine = prefixText + " " + line
+			} else {
+				// Continuation lines: indent to align with content
+				displayLine = strings.Repeat(" ", prefixWidth+1) + line
+			}
+			lines = append(lines, displayLine)
+		}
 	}
 	return lines
-}
-
-func (m model) renderScrollable(lines []string, width, height, offset int) string {
-	if height <= 0 {
-		return ""
-	}
-	if len(lines) == 0 {
-		return ""
-	}
-
-	maxScroll := len(lines) - height
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	if offset > maxScroll {
-		offset = maxScroll
-	}
-	if offset < 0 {
-		offset = 0
-	}
-
-	start := offset
-	end := offset + height
-	if end > len(lines) {
-		end = len(lines)
-	}
-
-	return strings.Join(lines[start:end], "\n")
 }
 
 func (m model) channels() []channel {
@@ -404,7 +417,7 @@ func (m model) renderChannelLine(ch channel, width int, cursor, active bool) str
 	return line
 }
 
-func (m model) moveCursor(delta int) {
+func (m *model) moveCursor(delta int) {
 	channels := m.channels()
 	if len(channels) == 0 {
 		m.cursorIndex = 0
@@ -426,39 +439,14 @@ func (m *model) activateSelection() tea.Cmd {
 	}
 	selected := channels[m.cursorIndex]
 	m.activeChannelID = selected.ID
+
+	// Update viewport content when switching channels
+	m.updateViewportContent()
+
 	if selected.Kind == "agent" {
 		return fetchTranscriptsCmd(m.db, selected.ID, m.lastTranscriptIDs[selected.ID])
 	}
 	return nil
-}
-
-func (m model) maxScroll(channelID string) int {
-	_, _, _, contentHeight := m.layout()
-	count := 0
-	switch channelID {
-	case mainChannelID:
-		count = len(m.mainContentLines(80))
-	default:
-		count = len(m.transcriptContentLines(channelID, 80))
-	}
-	maxScroll := count - contentHeight
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	return maxScroll
-}
-
-func (m *model) scrollContent(delta int) {
-	current := m.scrollOffsets[m.activeChannelID]
-	current += delta
-	maxScroll := m.maxScroll(m.activeChannelID)
-	if current < 0 {
-		current = 0
-	}
-	if current > maxScroll {
-		current = maxScroll
-	}
-	m.scrollOffsets[m.activeChannelID] = current
 }
 
 func (m *model) ensureSelection() {
@@ -478,25 +466,49 @@ func (m *model) ensureSelection() {
 	}
 }
 
+func (m *model) updateViewportContent() {
+	// Get the actual content width for the viewport
+	_, rightWidth, _, _ := m.layout()
+	contentWidth := rightWidth - 2 // Account for border
+
+	var content string
+	if m.activeChannelID == mainChannelID {
+		lines := m.mainContentLines(contentWidth)
+		content = strings.Join(lines, "\n")
+	} else {
+		lines := m.transcriptContentLines(m.activeChannelID, contentWidth)
+		content = strings.Join(lines, "\n")
+	}
+
+	m.viewport.SetContent(content)
+}
+
 func (m model) layout() (leftWidth, rightWidth, panelHeight, contentHeight int) {
-	panelHeight = m.height - 2
+	// Height: subtract title (1) + status bar (1) + border top/bottom (2) = 4
+	panelHeight = m.height - 4
 	if panelHeight < 3 {
 		panelHeight = 3
 	}
+
+	// Width: both panels have borders (2 chars each = 4 total)
+	availableWidth := m.width - 4
 	leftWidth = channelListWidth
 	minRight := 20
-	if m.width-leftWidth < minRight {
-		leftWidth = clamp(m.width-minRight, 12, leftWidth)
+
+	if availableWidth-leftWidth < minRight {
+		leftWidth = clamp(availableWidth-minRight, 10, leftWidth)
 	}
-	if leftWidth < 12 {
-		leftWidth = 12
+	if leftWidth < 10 {
+		leftWidth = 10
 	}
-	rightWidth = m.width - leftWidth
+	rightWidth = availableWidth - leftWidth
 	if rightWidth < minRight {
 		rightWidth = minRight
-		leftWidth = m.width - rightWidth
+		leftWidth = availableWidth - rightWidth
 	}
-	contentHeight = panelHeight - 3
+
+	// Content height inside panel (1 for title row)
+	contentHeight = panelHeight - 1
 	if contentHeight < 1 {
 		contentHeight = 1
 	}
@@ -609,6 +621,58 @@ func truncateString(s string, max int) string {
 		return string(runes[:max])
 	}
 	return string(runes[:max-3]) + "..."
+}
+
+// wrapText wraps text to fit within the specified width, breaking on word boundaries
+func wrapText(text string, width int) []string {
+	if width <= 0 {
+		return []string{""}
+	}
+
+	// Convert to runes to handle multi-byte characters correctly
+	runes := []rune(text)
+	if len(runes) <= width {
+		return []string{text}
+	}
+
+	var lines []string
+	var currentLine []rune
+
+	words := strings.Fields(text)
+	for _, word := range words {
+		wordRunes := []rune(word)
+
+		// If adding this word would exceed width, start a new line
+		if len(currentLine) > 0 && len(currentLine)+1+len(wordRunes) > width {
+			lines = append(lines, string(currentLine))
+			currentLine = wordRunes
+		} else if len(currentLine) == 0 {
+			// First word on line
+			if len(wordRunes) > width {
+				// Word is too long, hard break it
+				lines = append(lines, string(wordRunes[:width]))
+				currentLine = wordRunes[width:]
+			} else {
+				currentLine = wordRunes
+			}
+		} else {
+			// Add word to current line with space
+			currentLine = append(currentLine, ' ')
+			currentLine = append(currentLine, wordRunes...)
+		}
+	}
+
+	// Add final line if any
+	if len(currentLine) > 0 {
+		lines = append(lines, string(currentLine))
+	}
+
+	// If no lines were created, return empty line
+	if len(lines) == 0 {
+		return []string{""}
+	}
+
+	return lines
 }
 
 func clamp(value, min, max int) int {
