@@ -1,7 +1,9 @@
 package commands
 
 import (
+	"bytes"
 	"database/sql"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"text/template"
 
 	ottoexec "otto/internal/exec"
 	"otto/internal/repo"
@@ -18,6 +21,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
+
+//go:embed prompts/agent_instructions.md
+var agentInstructionsTemplate string
 
 var (
 	spawnFiles   string
@@ -349,34 +355,29 @@ Your agent ID: %s`, task, agentID)
 		prompt += fmt.Sprintf("\nAdditional context: %s", context)
 	}
 
-	prompt += `
+	// Parse and execute the embedded template
+	tmpl, err := template.New("instructions").Parse(agentInstructionsTemplate)
+	if err != nil {
+		// Fallback to basic instructions if template fails
+		prompt += fmt.Sprintf("\n\nUse %s complete --id %s when done.", ottoBin, agentID)
+		return prompt
+	}
 
-## Communication
+	data := struct {
+		AgentID string
+		OttoBin string
+	}{
+		AgentID: agentID,
+		OttoBin: ottoBin,
+	}
 
-You're part of a team. All agents share a message stream where everyone can
-see everything. Use @mentions to direct attention to specific agents.
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		prompt += fmt.Sprintf("\n\nUse %s complete --id %s when done.", ottoBin, agentID)
+		return prompt
+	}
 
-IMPORTANT: Always include your ID (--id ` + agentID + `) in every command.
-
-### Check for messages
-` + ottoBin + ` messages --id ` + agentID + `              # unread messages
-` + ottoBin + ` messages --mentions ` + agentID + `        # just messages that @mention you
-
-### Post a message
-` + ottoBin + ` say --id ` + agentID + ` "message here"
-
-### Ask a question (sets you to WAITING)
-` + ottoBin + ` ask --id ` + agentID + ` "your question"
-
-### Mark task as complete
-` + ottoBin + ` complete --id ` + agentID + ` "summary of what was done"
-
-## Guidelines
-
-**Check messages regularly** - other agents may have questions or updates.
-**Use @mentions** - when you need a specific agent's attention.
-`
-
+	prompt += "\n\n" + buf.String()
 	return prompt
 }
 
