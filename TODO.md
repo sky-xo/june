@@ -36,6 +36,11 @@ Features that reduce friction once core loop is validated.
 - [ ] TUI: 3-line task descriptions (less truncation)
 - [ ] TUI: agents panel on left side
 - [ ] otto should also work with codex being the orchestrator
+- [ ] `otto status` should list most recent agents first
+- [ ] Improve otto agent failure diagnostics (capture exit codes, propagate stderr on agent exit, persist failure reason)
+- [ ] Allow archiving idle agents (still block busy/blocked from archiving)
+- [ ] Follow-up polish: `otto status --all --archive` should show newly archived entries with `(archived)` in the same output
+- [ ] Follow-up polish: `otto status --archive` should attempt to archive all eligible agents and report combined errors
 
 ## V2 - Full Experience
 
