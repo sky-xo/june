@@ -89,3 +89,4 @@ Priority items for next session:
 1. **Codex flag** - Add `--skip-git-repo-check` to reduce startup time
 2. **Test interrupt with Codex** - Verify interrupt/resume flow works end-to-end
 3. **TUI improvements** - 3-line task descriptions
+4. **Worktree scope** - Use git common dir to keep DB under `~/.otto/orchestrators/<repo>/<branch>` even in worktrees
