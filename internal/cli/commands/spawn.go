@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -21,6 +22,7 @@ var (
 	spawnFiles   string
 	spawnContext string
 	spawnName    string
+	spawnDetach  bool
 )
 
 func NewSpawnCmd() *cobra.Command {
@@ -47,16 +49,21 @@ func NewSpawnCmd() *cobra.Command {
 			}
 			defer conn.Close()
 
-			return runSpawn(conn, &ottoexec.DefaultRunner{}, agentType, task, spawnFiles, spawnContext, spawnName)
+			return runSpawnWithOptions(conn, &ottoexec.DefaultRunner{}, agentType, task, spawnFiles, spawnContext, spawnName, spawnDetach, os.Stdout)
 		},
 	}
 	cmd.Flags().StringVar(&spawnFiles, "files", "", "Relevant files for the agent")
 	cmd.Flags().StringVar(&spawnContext, "context", "", "Additional context for the agent")
 	cmd.Flags().StringVar(&spawnName, "name", "", "Custom name for the agent (defaults to auto-generated from task)")
+	cmd.Flags().BoolVar(&spawnDetach, "detach", false, "Return immediately (no output capture)")
 	return cmd
 }
 
 func runSpawn(db *sql.DB, runner ottoexec.Runner, agentType, task, files, context, name string) error {
+	return runSpawnWithOptions(db, runner, agentType, task, files, context, name, false, io.Discard)
+}
+
+func runSpawnWithOptions(db *sql.DB, runner ottoexec.Runner, agentType, task, files, context, name string, detach bool, w io.Writer) error {
 	// Generate agent ID: use provided name or auto-generate from task
 	var agentID string
 	if name != "" {
@@ -96,6 +103,19 @@ func runSpawn(db *sql.DB, runner ottoexec.Runner, agentType, task, files, contex
 
 	// Build and run command
 	cmdArgs := buildSpawnCommand(agentType, prompt, sessionID)
+
+	if detach {
+		if w == nil {
+			w = io.Discard
+		}
+		pid, err := runner.StartDetached(cmdArgs[0], cmdArgs[1:]...)
+		if err != nil {
+			return fmt.Errorf("spawn %s: %w", agentType, err)
+		}
+		_ = repo.UpdateAgentPid(db, agentID, pid)
+		fmt.Fprintln(w, agentID)
+		return nil
+	}
 
 	// For Codex agents, we need to capture the thread_id from JSON output
 	if agentType == "codex" {

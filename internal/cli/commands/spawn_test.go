@@ -1,10 +1,12 @@
 package commands
 
 import (
+	"bytes"
 	"database/sql"
 	"strings"
 	"testing"
 
+	"otto/internal/db"
 	ottoexec "otto/internal/exec"
 	"otto/internal/repo"
 )
@@ -222,7 +224,7 @@ func TestSpawnStoresPromptAndTranscript(t *testing.T) {
 		t.Fatalf("expected prompt to contain task, got %q", msgs[0].Content)
 	}
 
-	entries, err := repo.ListTranscriptEntries(db, "testtask", "")
+	entries, err := repo.ListLogs(db, "testtask", "")
 	if err != nil {
 		t.Fatalf("list transcript entries: %v", err)
 	}
@@ -255,6 +257,41 @@ func TestSpawnStoresPromptAndTranscript(t *testing.T) {
 	}
 }
 
+func TestSpawnDetach(t *testing.T) {
+	conn, _ := db.Open(":memory:")
+	defer conn.Close()
+
+	runner := &mockRunner{
+		startDetachedFunc: func(name string, args ...string) (int, error) {
+			return 12345, nil
+		},
+	}
+
+	var buf bytes.Buffer
+	err := runSpawnWithOptions(conn, runner, "claude", "test task", "", "", "", true, &buf)
+	if err != nil {
+		t.Fatalf("spawn detach failed: %v", err)
+	}
+
+	// Should print agent ID
+	output := buf.String()
+	if !strings.Contains(output, "test") {
+		t.Errorf("expected agent ID in output, got: %s", output)
+	}
+
+	// Agent should exist and be busy
+	agents, _ := repo.ListAgents(conn)
+	if len(agents) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(agents))
+	}
+	if agents[0].Status != "busy" {
+		t.Errorf("expected status busy, got %s", agents[0].Status)
+	}
+	if !agents[0].Pid.Valid || agents[0].Pid.Int64 != 12345 {
+		t.Errorf("expected PID 12345, got %v", agents[0].Pid)
+	}
+}
+
 // mockRunner for testing
 type mockRunner struct {
 	startWithCaptureFunc           func(name string, args ...string) (int, <-chan string, func() error, error)
@@ -262,6 +299,7 @@ type mockRunner struct {
 	startWithTranscriptCaptureFunc func(name string, args ...string) (int, <-chan ottoexec.TranscriptChunk, func() error, error)
 	startWithTranscriptCaptureEnv  func(name string, env []string, args ...string) (int, <-chan ottoexec.TranscriptChunk, func() error, error)
 	startFunc                      func(name string, args ...string) (int, func() error, error)
+	startDetachedFunc              func(name string, args ...string) (int, error)
 }
 
 // Ensure mockRunner implements ottoexec.Runner
@@ -280,6 +318,13 @@ func (m *mockRunner) Start(name string, args ...string) (int, func() error, erro
 		return m.startFunc(name, args...)
 	}
 	return 1234, func() error { return nil }, nil
+}
+
+func (m *mockRunner) StartDetached(name string, args ...string) (int, error) {
+	if m.startDetachedFunc != nil {
+		return m.startDetachedFunc(name, args...)
+	}
+	return 1234, nil
 }
 
 func (m *mockRunner) StartWithCapture(name string, args ...string) (int, <-chan string, func() error, error) {

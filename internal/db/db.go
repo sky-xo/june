@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS agents (
   worktree_path TEXT,
   branch_name TEXT,
   completed_at DATETIME,
+  last_read_log_id TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -37,8 +38,8 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- transcript entries table
-CREATE TABLE IF NOT EXISTS transcript_entries (
+-- logs table
+CREATE TABLE IF NOT EXISTS logs (
   id TEXT PRIMARY KEY,
   agent_id TEXT NOT NULL,
   direction TEXT NOT NULL,
@@ -49,7 +50,7 @@ CREATE TABLE IF NOT EXISTS transcript_entries (
 
 CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
 CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
-CREATE INDEX IF NOT EXISTS idx_transcript_agent ON transcript_entries(agent_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_logs_agent ON logs(agent_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_agents_cleanup ON agents(completed_at) WHERE completed_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_messages_to ON messages(to_id, created_at);
 `
@@ -77,12 +78,16 @@ func ensureSchema(conn *sql.DB) error {
 	_, _ = conn.Exec(`ALTER TABLE agents ADD COLUMN completed_at DATETIME`)
 	// Migration: add to_id column if it doesn't exist
 	_, _ = conn.Exec(`ALTER TABLE messages ADD COLUMN to_id TEXT`)
+	// Migration: rename transcript_entries to logs
+	_, _ = conn.Exec(`ALTER TABLE transcript_entries RENAME TO logs`)
+	// Migration: add last_read_log_id column if it doesn't exist
+	_, _ = conn.Exec(`ALTER TABLE agents ADD COLUMN last_read_log_id TEXT`)
 	return nil
 }
 
 func cleanupOldData(conn *sql.DB) {
 	statements := []string{
-		`DELETE FROM transcript_entries
+		`DELETE FROM logs
 		WHERE agent_id IN (
 			SELECT id FROM agents
 			WHERE completed_at < datetime('now', '-7 days')
