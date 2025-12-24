@@ -14,6 +14,7 @@ type Runner interface {
 	Run(name string, args ...string) error
 	RunWithEnv(name string, env []string, args ...string) error
 	Start(name string, args ...string) (pid int, wait func() error, err error)
+	StartDetached(name string, args ...string) (pid int, err error)
 	StartWithCapture(name string, args ...string) (pid int, stdoutLines <-chan string, wait func() error, err error)
 	StartWithCaptureEnv(name string, env []string, args ...string) (pid int, stdoutLines <-chan string, wait func() error, err error)
 	StartWithTranscriptCapture(name string, args ...string) (pid int, output <-chan TranscriptChunk, wait func() error, err error)
@@ -62,6 +63,18 @@ func (r *DefaultRunner) Start(name string, args ...string) (int, func() error, e
 		return 0, nil, err
 	}
 	return cmd.Process.Pid, cmd.Wait, nil
+}
+
+func (r *DefaultRunner) StartDetached(name string, args ...string) (int, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	cmd.Stdin = nil
+	if err := cmd.Start(); err != nil {
+		return 0, err
+	}
+	go cmd.Wait()
+	return cmd.Process.Pid, nil
 }
 
 func (r *DefaultRunner) StartWithCapture(name string, args ...string) (int, <-chan string, func() error, error) {
