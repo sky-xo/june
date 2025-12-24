@@ -32,8 +32,9 @@ Queued after current focus. Will become "Current Focus" when ready.
 - Archive polish: `--all --archive` and `--archive` batch operations
 
 ### TUI
-- Display errors in UI (m.err stored but never shown)
+- Format Codex logs so they look nice (instead of like unreadable JSON)
 - Composite indexes for pagination performance
+- Display errors in UI (m.err stored but never shown)
 
 ## Completed
 
