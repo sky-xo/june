@@ -108,3 +108,126 @@ func TestWorkerSpawnCapturesPromptAndLogs(t *testing.T) {
 		t.Fatalf("expected 1 exit message, got %d", len(exitMsgs))
 	}
 }
+
+func TestWorkerSpawnCapturesThreadID(t *testing.T) {
+	db := openTestDB(t)
+
+	// Create Codex agent with placeholder session_id
+	placeholderID := uuid.New().String()
+	agent := repo.Agent{
+		ID:        "test-codex-worker",
+		Type:      "codex",
+		Task:      "test codex task",
+		Status:    "busy",
+		SessionID: sql.NullString{String: placeholderID, Valid: true}, // placeholder
+	}
+	if err := repo.CreateAgent(db, agent); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+
+	// Store prompt message
+	promptMsg := repo.Message{
+		ID:           uuid.New().String(),
+		FromID:       "orchestrator",
+		ToID:         sql.NullString{String: "test-codex-worker", Valid: true},
+		Type:         "prompt",
+		Content:      "Test codex prompt",
+		MentionsJSON: "[]",
+		ReadByJSON:   "[]",
+	}
+	if err := repo.CreateMessage(db, promptMsg); err != nil {
+		t.Fatalf("create prompt message: %v", err)
+	}
+
+	// Mock runner that simulates Codex JSON output with thread.started event
+	chunks := make(chan ottoexec.TranscriptChunk, 5)
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"other_event","data":"something"}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"thread.started","thread_id":"thread_xyz789"}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"message","content":"hello"}` + "\n"}
+	close(chunks)
+
+	runner := &mockRunner{
+		startWithTranscriptCaptureEnv: func(name string, env []string, args ...string) (int, <-chan ottoexec.TranscriptChunk, func() error, error) {
+			return 8888, chunks, func() error { return nil }, nil
+		},
+	}
+
+	// Run worker spawn for Codex agent
+	err := runWorkerSpawn(db, runner, "test-codex-worker")
+	if err != nil {
+		t.Fatalf("runWorkerSpawn failed: %v", err)
+	}
+
+	// Verify thread_id was captured and stored as session_id
+	updatedAgent, err := repo.GetAgent(db, "test-codex-worker")
+	if err != nil {
+		t.Fatalf("get agent: %v", err)
+	}
+	if updatedAgent.SessionID.String != "thread_xyz789" {
+		t.Fatalf("expected session_id to be 'thread_xyz789', got %q", updatedAgent.SessionID.String)
+	}
+	if updatedAgent.Status != "complete" {
+		t.Fatalf("expected status 'complete', got %q", updatedAgent.Status)
+	}
+}
+
+func TestWorkerSpawnCodexWithoutThreadID(t *testing.T) {
+	db := openTestDB(t)
+
+	// Create Codex agent with placeholder session_id
+	placeholderID := uuid.New().String()
+	agent := repo.Agent{
+		ID:        "test-codex-worker-no-thread",
+		Type:      "codex",
+		Task:      "test codex task without thread_id",
+		Status:    "busy",
+		SessionID: sql.NullString{String: placeholderID, Valid: true},
+	}
+	if err := repo.CreateAgent(db, agent); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+
+	// Store prompt message
+	promptMsg := repo.Message{
+		ID:           uuid.New().String(),
+		FromID:       "orchestrator",
+		ToID:         sql.NullString{String: "test-codex-worker-no-thread", Valid: true},
+		Type:         "prompt",
+		Content:      "Test codex prompt",
+		MentionsJSON: "[]",
+		ReadByJSON:   "[]",
+	}
+	if err := repo.CreateMessage(db, promptMsg); err != nil {
+		t.Fatalf("create prompt message: %v", err)
+	}
+
+	// Mock runner with NO thread.started event
+	chunks := make(chan ottoexec.TranscriptChunk, 3)
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"message","content":"hello"}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"other_event","data":"something"}` + "\n"}
+	close(chunks)
+
+	runner := &mockRunner{
+		startWithTranscriptCaptureEnv: func(name string, env []string, args ...string) (int, <-chan ottoexec.TranscriptChunk, func() error, error) {
+			return 7777, chunks, func() error { return nil }, nil
+		},
+	}
+
+	// Run worker spawn - should succeed despite missing thread_id
+	err := runWorkerSpawn(db, runner, "test-codex-worker-no-thread")
+	if err != nil {
+		t.Fatalf("runWorkerSpawn failed: %v", err)
+	}
+
+	// Verify agent completed successfully (but session_id should still be placeholder)
+	updatedAgent, err := repo.GetAgent(db, "test-codex-worker-no-thread")
+	if err != nil {
+		t.Fatalf("get agent: %v", err)
+	}
+	if updatedAgent.SessionID.String != placeholderID {
+		t.Fatalf("expected session_id to remain placeholder %q, got %q", placeholderID, updatedAgent.SessionID.String)
+	}
+	if updatedAgent.Status != "complete" {
+		t.Fatalf("expected status 'complete', got %q", updatedAgent.Status)
+	}
+}
