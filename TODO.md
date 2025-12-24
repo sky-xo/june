@@ -58,9 +58,10 @@ The polished multi-agent experience.
 
 Features being explored (not yet ready for implementation):
 
-- `docs/plans/2025-12-23-super-orchestrator-design.md` - Event bus + gate architecture for skill enforcement, attention routing, and inter-agent communication
+- `docs/plans/2025-12-24-super-orchestrator-design.md` - Event-driven orchestration with @mention wake-ups, unified TUI
+- `docs/plans/2025-12-24-tasks-design.md` - Tasks table with derived state, TODO.md vs tasks distinction
+- `docs/plans/2025-12-24-skill-injection-design.md` - Re-injecting skills on wake-up after compaction
 - `docs/plans/2025-12-22-orchestration-skill-design.md` - When to use Otto vs subagents
-- `docs/plans/2025-12-22-todos-design.md` - Hierarchical todos system
 
 ## Recently Implemented
 
@@ -78,9 +79,19 @@ Design docs for recently completed work:
 
 Priority items for next session:
 
-### TUI Channel View BUGS (User-reported 2025-12-23) - FIXED
-- [x] **BUG: Agents not visible** - Fixed: moveCursor had value receiver, cursor changes were lost
-- [x] **BUG: Scrolling not working** - Verified working: scrollContent already had pointer receiver
+### Super Orchestrator - Phase 1: Event Bus + Wake-up
+
+See design docs:
+- `docs/plans/2025-12-24-super-orchestrator-design.md`
+- `docs/plans/2025-12-24-tasks-design.md`
+- `docs/plans/2025-12-24-skill-injection-design.md`
+
+Key deliverables:
+- [ ] Event logging on message posting
+- [ ] @mention detection and parsing
+- [ ] Wake-up mechanism via `otto prompt` with context injection
+- [ ] Wire into `say`, `ask`, `complete` commands
+- [ ] `kill` command for forcible termination
 
 ### TUI Channel View Follow-ups (from code review)
 - [ ] Display errors in UI (m.err stored but never shown)
