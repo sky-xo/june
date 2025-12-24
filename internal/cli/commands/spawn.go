@@ -108,12 +108,6 @@ func runSpawnWithOptions(db *sql.DB, runner ottoexec.Runner, agentType, task, fi
 			w = io.Discard
 		}
 
-		// Get current executable path for otto binary
-		ottoBin, err := os.Executable()
-		if err != nil {
-			ottoBin = "otto" // fallback to PATH
-		}
-
 		// Launch worker-spawn in detached mode
 		pid, err := runner.StartDetached(ottoBin, "worker-spawn", agentID)
 		if err != nil {
