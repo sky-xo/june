@@ -291,3 +291,54 @@ func countString(items []string, target string) int {
 	}
 	return count
 }
+
+func TestGetLatestPromptForAgent(t *testing.T) {
+	db := openTestDB(t)
+
+	// Create multiple messages including prompts to agent-1
+	messages := []Message{
+		{ID: "m1", FromID: "orchestrator", ToID: nullStr("agent-1"), Type: "prompt", Content: "first prompt", MentionsJSON: `[]`, ReadByJSON: `[]`},
+		{ID: "m2", FromID: "agent-1", ToID: nullStr(""), Type: "say", Content: "response", MentionsJSON: `[]`, ReadByJSON: `[]`},
+		{ID: "m3", FromID: "orchestrator", ToID: nullStr("agent-1"), Type: "prompt", Content: "second prompt", MentionsJSON: `[]`, ReadByJSON: `[]`},
+		{ID: "m4", FromID: "orchestrator", ToID: nullStr("agent-2"), Type: "prompt", Content: "other agent", MentionsJSON: `[]`, ReadByJSON: `[]`},
+		{ID: "m5", FromID: "orchestrator", ToID: nullStr("agent-1"), Type: "prompt", Content: "latest prompt", MentionsJSON: `[]`, ReadByJSON: `[]`},
+	}
+
+	for _, msg := range messages {
+		if err := CreateMessage(db, msg); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+	}
+
+	// Set different timestamps to ensure ordering works
+	timestamps := map[string]string{
+		"m1": "2024-01-01 00:00:00",
+		"m2": "2024-01-02 00:00:00",
+		"m3": "2024-01-03 00:00:00",
+		"m4": "2024-01-04 00:00:00",
+		"m5": "2024-01-05 00:00:00",
+	}
+	for id, ts := range timestamps {
+		if _, err := db.Exec(`UPDATE messages SET created_at = ? WHERE id = ?`, ts, id); err != nil {
+			t.Fatalf("set created_at: %v", err)
+		}
+	}
+
+	// Should return latest prompt for agent-1
+	prompt, err := GetLatestPromptForAgent(db, "agent-1")
+	if err != nil {
+		t.Fatalf("get latest prompt: %v", err)
+	}
+	if prompt.ID != "m5" {
+		t.Fatalf("expected m5, got %s", prompt.ID)
+	}
+	if prompt.Content != "latest prompt" {
+		t.Fatalf("expected 'latest prompt', got %s", prompt.Content)
+	}
+
+	// Should return error for agent with no prompts
+	_, err = GetLatestPromptForAgent(db, "agent-3")
+	if err != sql.ErrNoRows {
+		t.Fatalf("expected sql.ErrNoRows for agent with no prompts, got %v", err)
+	}
+}

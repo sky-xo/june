@@ -125,6 +125,18 @@ func readByContains(readByJSON, reader string) bool {
 	return false
 }
 
+func GetLatestPromptForAgent(db *sql.DB, agentID string) (Message, error) {
+	query := `SELECT id, from_id, to_id, type, content, mentions, requires_human, read_by
+	          FROM messages
+	          WHERE type='prompt' AND to_id=?
+	          ORDER BY created_at DESC, id DESC
+	          LIMIT 1`
+
+	var m Message
+	err := db.QueryRow(query, agentID).Scan(&m.ID, &m.FromID, &m.ToID, &m.Type, &m.Content, &m.MentionsJSON, &m.RequiresHuman, &m.ReadByJSON)
+	return m, err
+}
+
 func MarkMessagesRead(db *sql.DB, messageIDs []string, readerID string) error {
 	for _, id := range messageIDs {
 		// Get current read_by

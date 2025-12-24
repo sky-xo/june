@@ -3,7 +3,6 @@ package commands
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -44,18 +43,11 @@ func runWorkerSpawn(db *sql.DB, runner ottoexec.Runner, agentID string) error {
 	}
 
 	// Get latest prompt message
-	messages, err := repo.ListMessages(db, repo.MessageFilter{
-		Type:  "prompt",
-		ToID:  agentID,
-		Limit: 1,
-	})
+	promptMsg, err := repo.GetLatestPromptForAgent(db, agentID)
 	if err != nil {
 		return fmt.Errorf("load prompt: %w", err)
 	}
-	if len(messages) == 0 {
-		return errors.New("no prompt message found for agent")
-	}
-	promptContent := messages[0].Content
+	promptContent := promptMsg.Content
 
 	// Store prompt as input log entry
 	if err := repo.CreateLogEntry(db, agentID, "in", "", promptContent); err != nil {
