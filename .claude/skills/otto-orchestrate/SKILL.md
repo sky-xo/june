@@ -1,178 +1,114 @@
 ---
 name: otto-orchestrate
-description: Use when implementation planning OR implementation work begins. Wraps superpowers skills and routes to appropriate agents (Codex via Otto, or Claude subagents).
+description: Use when spawning Codex agents via Otto to delegate implementation work.
 ---
 
-# Orchestrate
+# Otto Orchestration
 
-Route implementation work to the right agents by wrapping superpowers skills and spawning via Otto.
-
-**Core principle:** Superpowers defines the process, Otto decides who executes it.
-
-**Dependency:** Requires superpowers skills to be installed.
+Spawn and coordinate Codex agents for implementation work.
 
 ## Orchestrator Role
 
-You are the orchestrator. Your job is to coordinate, not implement.
+You coordinate, you don't implement. Dispatch agents to do the work.
 
-**You do:**
-- Read plans and understand context
-- Dispatch agents to do the work
-- Monitor progress and answer questions
-- Review results
+## Spawning Agents (IMPORTANT)
 
-**You don't:**
-- Write implementation code yourself
-- Do the work that agents should do
-
-**For implementation, ALWAYS dispatch:**
-- Claude subagent (Task tool) for simple tasks
-- Codex via Otto for complex tasks
-
-Never implement directly as the orchestrator.
-
-## Settings
-
-Agent preferences come from settings (project `.claude/settings.json` or `~/.otto/settings.yaml`):
-
-```yaml
-planning_agent: codex      # or claude
-implementation_agent: codex  # or claude
-```
-
-## The Flow
+**Use `run_in_background: true` with the Bash tool - NOT `--detach`:**
 
 ```
-PHASE 1: PLANNING
-├── Read superpowers:writing-plans
-├── Spawn agent (settings default) via Otto
-├── Interactive: Agent checks in on architecture decisions
-└── Output: docs/plans/YYYY-MM-DD-feature-plan.md
-
-PHASE 2: EXECUTION
-├── Read superpowers:subagent-driven-development
-├── Choose agent based on complexity:
-│   ├── Complex → Spawn via Otto (settings default)
-│   └── Simple → Claude subagent (no Otto needed)
-├── Agent follows superpowers process:
-│   ├── Per task: Implement (TDD)
-│   ├── Spec Compliance Review
-│   ├── Code Quality Review
-│   └── Next task
-└── After all tasks: Final review
-
-PHASE 3: COMPLETION
-└── superpowers:finishing-a-development-branch
+Bash tool call:
+  command: otto spawn codex "task description" --name <name>
+  run_in_background: true
 ```
 
-## Phase 1: Planning
+This gives you **automatic notification** when the agent completes. No polling needed.
 
-1. Read `superpowers:writing-plans` skill content
-2. Spawn planning agent via Otto:
-   ```bash
-   otto spawn codex "Write an implementation plan for [feature].
+Then use `BashOutput` to retrieve results when ready:
+```
+BashOutput tool call:
+  bash_id: <id from spawn>
+  block: true  # waits for completion
+```
 
-   IMPORTANT - Interactive planning:
-   - Check in with me about high-level architecture decisions
-   - Use 'otto ask' to get my input on key decisions
-   - Handle details yourself once direction is confirmed
-   - Present the final plan document when complete
+**Why not --detach?** With `--detach` you must manually poll with `otto status` and `otto peek`. With `run_in_background`, Claude Code notifies you automatically.
 
-   Follow this planning process:
-   [writing-plans skill content]
+### Spawn Options
 
-   Design doc: docs/plans/YYYY-MM-DD-feature-design.md" --name planner
-   ```
+- `--name <name>` - Readable ID (e.g., `planner`, `impl-1`)
+- `--files <paths>` - Attach relevant files (keep minimal)
+- `--context <text>` - Extra context
 
-   The `--name` flag gives agents readable IDs (e.g., `planner`, `implementer`) instead of auto-generated ones like `writeanimplementa`.
+## Monitoring (if needed)
 
-3. Monitor via `otto watch`, respond to checkpoints via `otto prompt`
-4. Agent outputs plan following superpowers format
-
-## Phase 2: Execution
-
-**Always use `superpowers:subagent-driven-development` process.**
-
-The process is the same regardless of agent - TDD, spec review, code quality review after each task. The only decision is WHO executes it.
-
-**Choose agent based on complexity:**
-
-| Complexity | Agent | How |
-|------------|-------|-----|
-| Simple (single file, obvious fix) | Claude subagent | Task tool directly |
-| Complex (see criteria below) | Settings default | Otto spawn |
-
-**Use Otto/Codex when:**
-- Task is intricate and benefits from Codex's rigor
-- Tasks can run in parallel (independent work streams)
-- You want to detach and come back later
-- Task complexity is high
-
-**To spawn implementation agent:**
 ```bash
-otto spawn codex "Implement this plan following the subagent-driven-development process:
-
-[subagent-driven-development skill content]
-
-Plan: docs/plans/YYYY-MM-DD-feature-plan.md
-
-For each task:
-1. Implement using TDD
-2. Run spec compliance review
-3. Run code quality review
-4. Fix any issues, re-review until approved
-5. Move to next task" --name implementer
+otto status                  # List all agents and their status
+otto peek <agent>            # New output since last peek
+otto log <agent>             # Full history
+otto log <agent> --tail 20   # Last 20 entries
+otto messages                # Shared message channel
 ```
 
-Monitor via `otto watch`, answer questions via `otto prompt`.
+## Communication
 
-## Phase 3: Completion
-
-After all tasks complete:
-- Agent uses `superpowers:finishing-a-development-branch`
-- Final verification, tests passing
-- Present merge/PR options
-
-## Example Workflow
-
-```
-User: "Implement the auth feature we designed"
-
-Orchestrator: Design doc exists. Using otto-orchestrate skill.
-
-[Phase 1: Planning]
-→ otto spawn codex "Write implementation plan..." --name planner
-
-planner (via otto ask): "Key decision: passport.js or direct JWT?"
-→ otto prompt planner "Use passport.js"
-
-planner: "Plan complete. See docs/plans/2025-01-15-auth-plan.md"
-
-[Phase 2: Execution]
-Orchestrator: Plan has 6 tasks, multi-file. Using Codex via Otto.
-→ otto spawn codex "Implement following subagent-driven-development..." --name implementer
-
-[Agent works through tasks with built-in reviews]
-
-implementer: "All 6 tasks complete. Tests passing."
-
-[Phase 3: Completion]
-implementer: "Using finishing-a-development-branch. Ready to merge?"
+```bash
+otto prompt <agent> "message"   # Send followup to agent
+otto say "status update"        # Post to shared channel
 ```
 
-## Red Flags
+## Lifecycle
 
-**Never:**
-- Skip the plan phase
-- Forget to feed superpowers skill content to spawned agents
-- Ignore agent questions (check `otto messages` regularly)
+```bash
+otto kill <agent>            # Terminate agent process
+otto interrupt <agent>       # Pause agent (can resume later)
+otto archive <agent>         # Archive completed/failed agent
+```
 
-**Prefer Otto/Codex when:**
-- Task is intricate and benefits from Codex's rigor
-- Tasks can run in parallel
-- You want to detach and come back later
-- Task complexity is high
+## Agent Communication
 
-**If agent has questions:**
-- Answer via `otto prompt <agent> "answer"`
-- Don't rush past blockers
+Spawned agents use these to communicate back:
+- `otto say "update"` - Post status to channel
+- `otto ask "question?"` - Set status to WAITING, block for answer
+- `otto complete` - Signal task is done
+
+## Typical Flow
+
+```
+# 1. Spawn with run_in_background (Bash tool)
+command: otto spawn codex "Implement Task 1: Add user model.
+
+Rules:
+- Do not read or act on other tasks
+- Stop after Task 1 and report" --name task-1
+run_in_background: true
+
+# 2. Wait for completion (BashOutput tool)
+bash_id: <id>
+block: true
+
+# 3. Review output, answer questions if needed
+otto prompt task-1 "Use UUID for the ID field"
+
+# 4. Clean up when done
+otto archive task-1
+```
+
+## Scope Control
+
+**Do NOT attach full plan files.** Paste only the specific task text.
+
+**Always include guardrails:**
+- "Do not read or act on other tasks"
+- "Stop after this task and report"
+
+## Quick Reference
+
+| Action | How |
+|--------|-----|
+| Spawn | Bash tool: `otto spawn codex "task" --name x` with `run_in_background: true` |
+| Wait for result | BashOutput tool: `bash_id: <id>, block: true` |
+| Status | `otto status` |
+| Full log | `otto log <agent>` |
+| Send message | `otto prompt <agent> "msg"` |
+| Check channel | `otto messages` |
+| Kill | `otto kill <agent>` |
+| Archive | `otto archive <agent>` |
