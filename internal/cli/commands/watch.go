@@ -94,19 +94,24 @@ func cleanupStaleAgents(db *sql.DB, scopeCtx scope.Context) {
 	for _, a := range agents {
 		if a.Status == "busy" && a.Pid.Valid {
 			if !process.IsProcessAlive(int(a.Pid.Int64)) {
-				// Post exit message and delete agent
+				// Mark agent as failed
+				_ = repo.SetAgentFailed(db, a.Project, a.Branch, a.Name)
+
+				// Post exit message mentioning orchestrator for wakeup
+				orchestratorMention := fmt.Sprintf("%s:%s:otto", scopeCtx.Project, scopeCtx.Branch)
+				mentionsJSON := fmt.Sprintf(`["%s"]`, orchestratorMention)
+
 				msg := repo.Message{
-					ID:        fmt.Sprintf("%s-exit-%d", a.Name, time.Now().Unix()),
-					Project:   scopeCtx.Project,
-					Branch:    scopeCtx.Branch,
-					FromAgent: a.Name,
-					Type:      "exit",
-					Content:   "process died unexpectedly",
-					MentionsJSON: "[]",
+					ID:           fmt.Sprintf("%s-exit-%d", a.Name, time.Now().Unix()),
+					Project:      scopeCtx.Project,
+					Branch:       scopeCtx.Branch,
+					FromAgent:    a.Name,
+					Type:         "exit",
+					Content:      "process died unexpectedly",
+					MentionsJSON: mentionsJSON,
 					ReadByJSON:   "[]",
 				}
 				_ = repo.CreateMessage(db, msg)
-				_ = repo.DeleteAgent(db, a.Project, a.Branch, a.Name)
 			}
 		}
 	}

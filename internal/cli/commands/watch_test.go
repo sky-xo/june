@@ -132,10 +132,13 @@ func TestCleanupStaleAgentsDeletesDeadAgents(t *testing.T) {
 	ctx := scope.Context{Project: "test-project", Branch: "main"}
 	cleanupStaleAgents(testDB, ctx)
 
-	// Agent should be deleted
-	_, err := repo.GetAgent(testDB, "test-project", "main", "deadagent")
-	if err != sql.ErrNoRows {
-		t.Fatalf("expected agent to be deleted, got err=%v", err)
+	// Agent should be marked as failed (not deleted)
+	updatedAgent, err := repo.GetAgent(testDB, "test-project", "main", "deadagent")
+	if err != nil {
+		t.Fatalf("expected agent to still exist but marked failed, got err=%v", err)
+	}
+	if updatedAgent.Status != "failed" {
+		t.Fatalf("expected agent status=failed, got %s", updatedAgent.Status)
 	}
 
 	// Should have an exit message
@@ -148,6 +151,20 @@ func TestCleanupStaleAgentsDeletesDeadAgents(t *testing.T) {
 	}
 	if msgs[0].FromAgent != "deadagent" {
 		t.Fatalf("expected exit message from deadagent, got %s", msgs[0].FromAgent)
+	}
+
+	// Exit message should mention orchestrator for wakeup
+	mentions := parseMentionsFromJSON(msgs[0].MentionsJSON)
+	expectedMention := "test-project:main:otto"
+	found := false
+	for _, m := range mentions {
+		if m == expectedMention {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected exit message to mention %s, got mentions: %v", expectedMention, mentions)
 	}
 }
 
