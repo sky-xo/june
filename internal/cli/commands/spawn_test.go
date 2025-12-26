@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"otto/internal/config"
 	"otto/internal/db"
 	ottoexec "otto/internal/exec"
 	"otto/internal/repo"
-	
 )
 
 func TestSpawnBuildsCommand(t *testing.T) {
@@ -470,6 +471,7 @@ func TestClaudeSpawnUsesNormalStart(t *testing.T) {
 }
 
 func TestCodexSpawnSetsCodexHome(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	db := openTestDB(t)
 
 	var capturedEnv []string
@@ -490,21 +492,19 @@ func TestCodexSpawnSetsCodexHome(t *testing.T) {
 	}
 
 	// Verify CODEX_HOME was set
-	found := false
+	expectedPath := filepath.Join(config.DataDir(), "state", "codex")
+	var codexHome string
 	for _, envVar := range capturedEnv {
 		if strings.HasPrefix(envVar, "CODEX_HOME=") {
-			found = true
-			// Verify it's a temp directory
-			codexHome := strings.TrimPrefix(envVar, "CODEX_HOME=")
-			if !strings.Contains(codexHome, "otto-codex-") {
-				t.Fatalf("CODEX_HOME should be temp dir with 'otto-codex-' prefix, got %q", codexHome)
-			}
-			break
+			codexHome = strings.TrimPrefix(envVar, "CODEX_HOME=")
 		}
 	}
 
-	if !found {
+	if codexHome == "" {
 		t.Fatal("CODEX_HOME environment variable should be set for Codex agents")
+	}
+	if codexHome != expectedPath {
+		t.Fatalf("CODEX_HOME should be %q, got %q", expectedPath, codexHome)
 	}
 }
 

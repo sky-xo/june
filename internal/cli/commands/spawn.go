@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"text/template"
@@ -214,31 +213,17 @@ func runSpawnWithOptions(db *sql.DB, runner ottoexec.Runner, agentType, task, fi
 }
 
 func runCodexSpawn(db *sql.DB, runner ottoexec.Runner, ctx scope.Context, agentID string, cmdArgs []string) error {
-	// Create temp directory for CODEX_HOME to bypass superpowers
-	tempDir, err := os.MkdirTemp("", "otto-codex-*")
+	codexHome, err := ensureCodexHome()
 	if err != nil {
-		return fmt.Errorf("create temp CODEX_HOME: %w", err)
-	}
-	defer os.RemoveAll(tempDir) // Cleanup after agent process exits
-
-	// Copy auth.json from real CODEX_HOME to preserve credentials
-	realCodexHome := os.Getenv("CODEX_HOME")
-	if realCodexHome == "" {
-		home, _ := os.UserHomeDir()
-		realCodexHome = filepath.Join(home, ".codex")
-	}
-	authSrc := filepath.Join(realCodexHome, "auth.json")
-	if authData, err := os.ReadFile(authSrc); err == nil {
-		_ = os.WriteFile(filepath.Join(tempDir, "auth.json"), authData, 0600)
+		return err
 	}
 
-	// Set CODEX_HOME to temp dir to bypass ~/.codex/AGENTS.md
-	env := append(os.Environ(), fmt.Sprintf("CODEX_HOME=%s", tempDir))
+	// Set CODEX_HOME to dedicated dir to bypass ~/.codex/AGENTS.md
+	env := append(os.Environ(), fmt.Sprintf("CODEX_HOME=%s", codexHome))
 
 	// Start with transcript capture to parse JSON output
 	pid, output, wait, err := runner.StartWithTranscriptCaptureEnv(cmdArgs[0], env, cmdArgs[1:]...)
 	if err != nil {
-		os.RemoveAll(tempDir) // Cleanup temp dir on spawn failure
 		return fmt.Errorf("spawn codex: %w", err)
 	}
 
