@@ -386,7 +386,7 @@ func (m model) transcriptContentLines(agentID string, width int) []string {
 
 	lines := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		prefix, style := transcriptPrefix(entry)
+		prefix, prefixStyle := transcriptPrefix(entry)
 
 		// Determine content to display
 		content := entry.Content.String
@@ -395,30 +395,47 @@ func (m model) transcriptContentLines(agentID string, width int) []string {
 			content = entry.Command.String
 		}
 
-		// Special handling for input - full background, no indent on wrap
+		// Determine if content should be dimmed (reasoning and commands fade into background)
+		isDimmed := entry.EventType == "reasoning" || entry.EventType == "thinking" ||
+			entry.EventType == "command_execution" || entry.EventType == "tool_call" ||
+			entry.EventType == "tool_result"
+
+		// Special handling for input - full background, preserve newlines
 		if entry.EventType == "input" {
 			inputWidth := width - 4 // leave some margin
 			if inputWidth < 1 {
 				inputWidth = 1
 			}
-			inputLines := wrapText(content, inputWidth)
-			for i, line := range inputLines {
-				var displayLine string
-				if i == 0 {
-					displayLine = prefix + " " + line
-				} else {
-					// Continuation: small indent, flows naturally
-					displayLine = "  " + line
+			// Split on newlines first to preserve paragraph structure
+			paragraphs := strings.Split(content, "\n")
+			firstLine := true
+			for _, para := range paragraphs {
+				if para == "" {
+					// Empty line - render as blank with background
+					padded := strings.Repeat(" ", width)
+					lines = append(lines, inputStyle.Render(padded))
+					continue
 				}
-				// Apply inputStyle to entire line, pad to width
-				padded := displayLine + strings.Repeat(" ", width-lipgloss.Width(displayLine))
-				lines = append(lines, inputStyle.Render(padded))
+				wrappedLines := wrapText(para, inputWidth)
+				for _, line := range wrappedLines {
+					var displayLine string
+					if firstLine {
+						displayLine = prefix + " " + line
+						firstLine = false
+					} else {
+						// Continuation: small indent, flows naturally
+						displayLine = "  " + line
+					}
+					// Apply inputStyle to entire line, pad to width
+					padded := displayLine + strings.Repeat(" ", width-lipgloss.Width(displayLine))
+					lines = append(lines, inputStyle.Render(padded))
+				}
 			}
 			lines = append(lines, "") // blank line after entry
 			continue
 		}
 
-		prefixText := padRight(style.Render(prefix), prefixWidth)
+		prefixText := padRight(prefixStyle.Render(prefix), prefixWidth)
 
 		// Wrap long lines to prevent overflow
 		contentLines := wrapText(content, contentWidth)
@@ -431,7 +448,12 @@ func (m model) transcriptContentLines(agentID string, width int) []string {
 				// Continuation lines: indent to align with content
 				displayLine = strings.Repeat(" ", prefixWidth+1) + line
 			}
-			lines = append(lines, displayLine)
+			// Apply dimming to non-message entries
+			if isDimmed {
+				lines = append(lines, mutedStyle.Render(displayLine))
+			} else {
+				lines = append(lines, displayLine)
+			}
 		}
 		lines = append(lines, "") // blank line after entry
 	}
