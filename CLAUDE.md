@@ -15,17 +15,17 @@ make watch    # Build and run TUI
 ## Architecture
 
 ```
-~/.otto/orchestrators/<project>/<branch>/otto.db   # SQLite per orchestrator
+~/.otto/otto.db   # Global SQLite database (project/branch columns in tables)
 ```
 
 **Packages:**
 - `cmd/otto/` - Entry point
 - `internal/cli/` - Cobra root command
 - `internal/cli/commands/` - All CLI commands
-- `internal/repo/` - Database operations (agents, messages)
+- `internal/repo/` - Database operations (agents, messages, tasks, logs)
 - `internal/db/` - SQLite schema and connection
 - `internal/scope/` - Git project/branch detection
-- `internal/tui/` - Bubbletea TUI for watch --ui
+- `internal/tui/` - Bubbletea TUI for watch command
 - `internal/exec/` - Process execution abstraction
 
 ## Key Commands
@@ -47,7 +47,11 @@ make watch    # Build and run TUI
 
 ## Database Schema
 
-Two tables: `agents` (id, type, task, status, session_id) and `messages` (id, from_id, type, content, mentions, read_by).
+Four tables with project/branch scoping:
+- `agents` (project, branch, name, type, task, status, session_id, pid, compacted_at, ...)
+- `messages` (id, project, branch, from_agent, to_agent, type, content, mentions, ...)
+- `tasks` (project, branch, id, parent_id, name, sort_index, assigned_agent, result)
+- `logs` (id, project, branch, agent_name, agent_type, event_type, content, raw_json, ...)
 
 ## Documentation
 
