@@ -58,18 +58,21 @@ func consumeTranscriptEntries(db *sql.DB, ctx scope.Context, agentID string, out
 
 		var stdoutBuffer string
 		for chunk := range output {
-			entry := repo.LogEntry{
-				Project:   ctx.Project,
-				Branch:    ctx.Branch,
-				AgentName: agentID,
-				AgentType: agent.Type,
-				EventType: "output",
-				ToolName:  sql.NullString{String: chunk.Stream, Valid: true},
-				Content:   sql.NullString{String: chunk.Data, Valid: true},
-			}
-			if err := repo.CreateLogEntry(db, entry); err != nil {
-				done <- err
-				return
+			// Only log raw output if no event parser is provided (Claude agents)
+			if onEvent == nil {
+				entry := repo.LogEntry{
+					Project:   ctx.Project,
+					Branch:    ctx.Branch,
+					AgentName: agentID,
+					AgentType: agent.Type,
+					EventType: "output",
+					ToolName:  sql.NullString{String: chunk.Stream, Valid: true},
+					Content:   sql.NullString{String: chunk.Data, Valid: true},
+				}
+				if err := repo.CreateLogEntry(db, entry); err != nil {
+					done <- err
+					return
+				}
 			}
 			if onEvent != nil && chunk.Stream == "stdout" {
 				stdoutBuffer += chunk.Data
