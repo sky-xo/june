@@ -120,6 +120,8 @@ type model struct {
 	activeChannelID   string
 	archivedExpanded  bool
 	focusedPanel      int // Panel index (panelAgents, panelMessages, etc.)
+	mouseX            int // Mouse X position for hover detection
+	mouseY            int // Mouse Y position for hover detection
 	err               error
 	viewport          viewport.Model
 }
@@ -197,6 +199,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focusedPanel == panelMessages {
 				m.viewport, cmd = m.viewport.Update(msg)
 				return m, cmd
+			}
+		}
+
+	case tea.MouseMsg:
+		// Track mouse position for hover detection
+		m.mouseX, m.mouseY = msg.X, msg.Y
+
+		// Get layout to determine panel boundaries
+		leftWidth, _, _, _ := m.layout()
+		inContentPanel := msg.X > leftWidth
+
+		// Only handle scroll wheel events
+		if inContentPanel && msg.Action == tea.MouseActionPress {
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				m.viewport.LineUp(3)
+			case tea.MouseButtonWheelDown:
+				m.viewport.LineDown(3)
 			}
 		}
 
