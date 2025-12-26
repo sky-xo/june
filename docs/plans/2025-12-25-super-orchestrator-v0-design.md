@@ -159,11 +159,15 @@ Parse the JSON output stream for `context_compacted` event:
 
 When detected, set flag in DB. Next wake-up re-injects full skills.
 
-## Codex JSON Output Format
+## Agent Output Formats
 
-From research of `github.com/openai/codex` source:
+Otto supports multiple agent types. Each has a different JSON output format that we normalize to a common schema.
 
-### Event Types
+### Codex CLI (`--json`)
+
+From research of `github.com/openai/codex` source. Output is JSONL (one event per line).
+
+**Event Types:**
 
 | Event | Description |
 |-------|-------------|
@@ -176,25 +180,151 @@ From research of `github.com/openai/codex` source:
 | `warning` | General warning (e.g., post-compaction warning) |
 | `error` | Fatal error |
 
-### Item Types (in `item.*` events)
+**Item Types (in `item.*` events):**
 
-| Item Type | Fields | Display As |
-|-----------|--------|------------|
-| `reasoning` | `text` | Collapsed thinking (gray) |
-| `agent_message` | `text` | Message bubble |
-| `command_execution` | `command`, `aggregated_output`, `exit_code`, `status` | Code block |
-| `file_change` | file details | Diff view |
-| `mcp_tool_call` | tool call details | Tool badge |
-| `todo_list` | plan items | Checklist |
+| Item Type | Fields | Notes |
+|-----------|--------|-------|
+| `reasoning` | `text` | Summary only (full reasoning hidden internally) |
+| `agent_message` | `text` | Response to user |
+| `command_execution` | `command`, `aggregated_output`, `exit_code`, `status` | Shell commands |
+| `file_change` | file details | File modifications |
+| `mcp_tool_call` | tool call details | MCP tool invocations |
+| `todo_list` | plan items | Task checklists |
 
-### Implementation: Parse and Store
+**Streaming:** Codex emits `agent_message_delta` events for live character-by-character output.
 
-Currently we store raw JSON. Improve to:
+### Claude Code CLI (`--output-format stream-json`)
 
-1. Parse each JSON line as it arrives
-2. Detect event types (especially `context_compacted`)
-3. Extract content for nice display
-4. Store structured data in DB
+Output is JSONL. Messages contain content block arrays.
+
+**Top-level Event Types:**
+
+| Event | Description |
+|-------|-------------|
+| `system` (subtype: `init`) | Session start with `session_id` and tools |
+| `assistant` | Model response with content blocks |
+| `user` | Tool results |
+| `result` | Session end with stats (`cost_usd`, `num_turns`) |
+
+**Content Block Types (in `message.content[]`):**
+
+| Block Type | Fields | Notes |
+|------------|--------|-------|
+| `thinking` | `thinking`, `signature` | Summary in `thinking`, full encrypted in `signature` |
+| `text` | `text` | Response text |
+| `tool_use` | `id`, `name`, `input` | Tool invocation (Bash, Read, Write, etc.) |
+| `tool_result` | `tool_use_id`, `content` | Tool output (in `user` message) |
+
+**Example:**
+
+```json
+{
+  "type": "assistant",
+  "message": {
+    "content": [
+      {"type": "thinking", "thinking": "Let me analyze...", "signature": "..."},
+      {"type": "text", "text": "Here's my answer..."},
+      {"type": "tool_use", "id": "toolu_123", "name": "Bash", "input": {"command": "ls"}}
+    ]
+  }
+}
+```
+
+**Streaming:** With `--include-partial-messages`, Claude emits `thinking_delta` and `text_delta` events.
+
+### Gemini CLI (`--output-format stream-json`) — Future
+
+Output is JSONL, similar structure to Codex and Claude.
+
+**Top-level Event Types:**
+
+| Event | Description |
+|-------|-------------|
+| `init` | Session start with `session_id`, `model` |
+| `message` | User/assistant messages (supports `delta: true` for streaming) |
+| `tool_use` | Tool invocation with `tool_name`, `tool_id`, `parameters` |
+| `tool_result` | Tool output with `tool_id`, `status`, `output` |
+| `error` | Non-fatal errors/warnings |
+| `result` | Session end with aggregated stats |
+
+**Example:**
+
+```json
+{"type": "tool_use", "tool_name": "Bash", "tool_id": "bash-123", "parameters": {"command": "ls -la"}}
+{"type": "tool_result", "tool_id": "bash-123", "status": "success", "output": "file1.txt\nfile2.txt"}
+{"type": "message", "role": "assistant", "content": "Here are the files...", "delta": true}
+```
+
+**Key difference:** No `thinking` event type. Gemini does not expose reasoning as a stream — the `thinking` field will be NULL for Gemini agents.
+
+**Streaming:** `message` events with `delta: true` for incremental content.
+
+### Key Insight: Reasoning Availability
+
+| Agent | Reasoning Exposed? | Format |
+|-------|-------------------|--------|
+| Codex | Yes (summary) | `reasoning.text` |
+| Claude 4 | Yes (summary) | `thinking` field (full encrypted in `signature`) |
+| Gemini | No | Not available in stream |
+
+### Normalized Schema
+
+Otto normalizes all agent formats to a common log structure:
+
+```sql
+logs (
+  id TEXT PRIMARY KEY,
+  project TEXT NOT NULL,
+  branch TEXT NOT NULL,
+  agent_name TEXT NOT NULL,
+  agent_type TEXT NOT NULL,       -- 'codex', 'claude', 'gemini' (future)
+
+  -- Event classification
+  event_type TEXT NOT NULL,       -- normalized: thinking, message, tool_call, tool_result
+  tool_name TEXT,                 -- for tool events: Bash, Read, Write, etc.
+
+  -- Content
+  content TEXT,                   -- main displayable content (summary for thinking)
+  raw_json TEXT,                  -- full original event for future parsing
+
+  -- Tool-specific (nullable)
+  command TEXT,                   -- for Bash/shell tools
+  exit_code INTEGER,
+  status TEXT,                    -- in_progress, completed, failed
+  tool_use_id TEXT,               -- correlates tool_call with tool_result
+
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+```
+
+**Normalization Mapping:**
+
+| Normalized Type | Codex Source | Claude Source | Gemini Source |
+|-----------------|--------------|---------------|---------------|
+| `thinking` | `type: "reasoning"` | `content[].type: "thinking"` | (not available) |
+| `message` | `type: "agent_message"` | `content[].type: "text"` | `type: "message"` |
+| `tool_call` | `type: "command_execution"` | `content[].type: "tool_use"` | `type: "tool_use"` |
+| `tool_result` | (same event as tool_call) | `content[].type: "tool_result"` | `type: "tool_result"` |
+
+### V0 Streaming Scope
+
+**V0:** Poll completed blocks only
+- Daemon reads JSONL from agent process
+- On block complete (`item.completed` / `content_block_stop`): write to DB
+- TUI polls DB every 1-2s for new completed blocks
+- No character-by-character streaming
+
+**V1:** Add live streaming
+- Daemon forwards deltas to TUI via channel
+- TUI renders character-by-character
+- Deltas not stored in DB (ephemeral)
+
+### Parser Strategy
+
+- **Codex:** Read top-level `type` field, map item types directly
+- **Claude:** Iterate `message.content[]`, map each block's `type` to normalized type
+- **Gemini:** Read top-level `type` field (similar to Codex), handle `delta: true` for streaming
+- All parsers output normalized `LogEntry` structs for DB storage
 
 ## TUI Design
 
@@ -228,30 +358,69 @@ Shows parsed, nicely formatted output:
 
 ## Event Routing
 
-| Event | Routes to... |
-|-------|--------------|
-| `@mention` of specific agent | Daemon auto-wakes that agent |
-| Agent `complete` | Daemon notifies orchestrator |
-| Agent `failed` (crash/timeout) | Daemon notifies orchestrator with error details |
-| Agent `ask` (blocked) | Orchestrator decides: answer, escalate, or spawn specialist |
-| `@human` | Human via TUI notification |
-| `@otto` | Orchestrator |
+### Core Principle
 
-### Agent Failure Handling
+**Daemon is dumb, orchestrator is smart.**
 
-When an agent crashes, times out, or exits with an error, the **daemon detects it** (not the orchestrator). The daemon then notifies the orchestrator with details:
+| Component | Responsibility |
+|-----------|----------------|
+| Daemon | Detect events, report facts, inject context |
+| Orchestrator | Interpret status, make decisions, take action |
+
+### Wake-up Triggers
+
+| Trigger | Action |
+|---------|--------|
+| `@mention` in any message | Wake the mentioned agent (any project/branch) |
+| Agent process exits | Notify orchestrator with context |
+| `@human` | Notify human via TUI |
+
+### Process Exit Handling
+
+On **any** agent process exit, daemon notifies orchestrator with:
+- Agent name and exit code
+- Agent's current status (`busy`, `blocked`, `complete`, `failed`)
+- All unread messages since last wake-up
+- Current task state
+
+The orchestrator interprets the status and decides what to do:
+- `blocked` → answer the agent's question
+- `complete` → acknowledge and move to next task
+- `failed` → handle error (retry, reassign, escalate to human)
+
+### `otto ask` Flow
+
+When an agent needs help, it doesn't block the process:
 
 ```
-@otto: @impl-1 failed (exit code 1, error: process killed after 10min timeout)
+1. Agent runs: otto ask "which approach should I use?"
+   → Message stored in DB
+   → Agent status set to "blocked"
+   → Agent process exits normally
+
+2. Daemon detects process exit
+   → Sees agent status = blocked
+   → Notifies orchestrator with question and context
+
+3. Orchestrator decides and answers: otto prompt impl-1 "use approach A"
+   → Agent respawned/resumed with the answer
+   → Agent status set to "busy"
 ```
 
-The orchestrator then decides what to do:
-- Retry with the same agent
-- Spawn a new agent
-- Escalate to human
-- Mark the task as blocked and move on
+### Message Deduplication
 
-This keeps reliable detection in the daemon (code) and smart decisions in the orchestrator (LLM).
+Each agent tracks `last_seen_message_id`. On wake-up:
+1. Query messages where `id > last_seen_message_id`
+2. Inject all unread messages into context
+3. Update `last_seen_message_id` after successful wake-up
+
+### Compaction Re-injection
+
+When `context_compacted` is detected, set `compacted_at` timestamp. On next wake-up:
+- Re-inject full skills and task state (not just new messages)
+- Clear `compacted_at` after successful injection
+
+Subsequent wake-ups only inject new messages until next compaction.
 
 ## CLI Commands
 
@@ -265,8 +434,8 @@ otto prompt impl-1 "try a different approach"  # → specific agent
 # Agent communication
 otto say "status update"                       # Post to channel
 otto say "@otto I need help"                   # Mention triggers wake-up
-otto ask "what should I do next?"              # Block until answered
-otto complete "finished the task"              # Mark agent complete
+otto ask "what should I do next?"              # Set status=blocked, exit, wait for answer
+# Note: otto complete not needed for V0 — process exit is sufficient
 
 # Spawning
 otto spawn codex "implement feature X"         # Spawn agent (orchestrator only)
