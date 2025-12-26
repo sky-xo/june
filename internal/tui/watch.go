@@ -63,6 +63,10 @@ var (
 	statusFailedStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("1"))
 
+	inputStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("7")).
+				Background(lipgloss.Color("235"))
+
 	focusedBorderStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(lipgloss.Color("6")) // Cyan
@@ -704,19 +708,23 @@ func formatMessage(msg repo.Message) (string, lipgloss.Style) {
 
 func transcriptPrefix(entry repo.LogEntry) (string, lipgloss.Style) {
 	switch entry.EventType {
-	case "tool_call", "command_execution":
-		return "→", mutedStyle
+	case "input":
+		return ">", inputStyle
+	case "reasoning", "thinking":
+		return "∴", mutedStyle
+	case "command_execution":
+		return "$", messageStyle
+	case "tool_call":
+		return "ƒ", messageStyle
 	case "tool_result":
 		if entry.Status.Valid && entry.Status.String == "failed" {
 			return "!", statusFailedStyle
 		}
-		return "←", messageStyle
-	case "reasoning", "thinking":
-		return "·", mutedStyle
+		return "", messageStyle
 	case "agent_message", "message":
-		return "←", messageStyle
+		return "⏺", messageStyle
 	default:
-		return "·", mutedStyle
+		return "∴", mutedStyle
 	}
 }
 
