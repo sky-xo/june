@@ -210,13 +210,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		leftWidth, _, _, _ := m.layout()
 		inContentPanel := msg.X > leftWidth
 
-		// Only handle scroll wheel events
+		// Handle scroll wheel events
 		if inContentPanel && msg.Action == tea.MouseActionPress {
 			switch msg.Button {
 			case tea.MouseButtonWheelUp:
 				m.viewport.LineUp(3)
 			case tea.MouseButtonWheelDown:
 				m.viewport.LineDown(3)
+			}
+		}
+
+		// Click - select agent if clicking in agent list
+		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionRelease {
+			if !inContentPanel {
+				// Calculate which agent was clicked based on msg.Y
+				// Subtract 2 for border + title row
+				clickedIndex := msg.Y - 2
+				channels := m.channels()
+				if clickedIndex >= 0 && clickedIndex < len(channels) {
+					m.cursorIndex = clickedIndex
+					return m, m.activateSelection()
+				}
 			}
 		}
 
