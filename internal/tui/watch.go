@@ -819,7 +819,11 @@ func tickCmd() tea.Cmd {
 
 func fetchMessagesCmd(db *sql.DB, sinceID string) tea.Cmd {
 	return func() tea.Msg {
-		filter := repo.MessageFilter{}
+		ctx := scope.CurrentContext()
+		filter := repo.MessageFilter{
+			Project: ctx.Project,
+			Branch:  ctx.Branch,
+		}
 		if sinceID != "" {
 			filter.SinceID = sinceID
 		}

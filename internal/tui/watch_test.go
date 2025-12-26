@@ -299,8 +299,7 @@ func TestFetchTranscriptsUsesCurrentScope(t *testing.T) {
 		t.Errorf("expected agentID %q, got %q", agentName, transcriptsMsg.agentID)
 	}
 
-	// This test will FAIL with current code because fetchTranscriptsCmd passes
-	// empty strings for project/branch, so it won't filter by scope
+	// Verify we got at least one log entry from current scope
 	if len(transcriptsMsg.entries) == 0 {
 		t.Fatalf("expected at least 1 log entry, got 0 - fetchTranscriptsCmd is not using current scope")
 	}
@@ -385,8 +384,7 @@ func TestFetchAgentsUsesCurrentScope(t *testing.T) {
 		t.Fatalf("expected agentsMsg, got %T", msg)
 	}
 
-	// This test will FAIL with current code because fetchAgentsCmd passes
-	// empty AgentFilter, so it won't filter by scope
+	// Verify we got at least one agent from current scope
 	if len(agentsMsg) == 0 {
 		t.Fatalf("expected at least 1 agent, got 0 - fetchAgentsCmd is not using current scope")
 	}
@@ -398,5 +396,86 @@ func TestFetchAgentsUsesCurrentScope(t *testing.T) {
 
 	if agentsMsg[0].Name != "agent-1" {
 		t.Errorf("expected agent name %q, got %q", "agent-1", agentsMsg[0].Name)
+	}
+}
+
+func TestFetchMessagesUsesCurrentScope(t *testing.T) {
+	// Create in-memory database with schema
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Manually create schema
+	schemaSQL := `
+		CREATE TABLE IF NOT EXISTS messages (
+			id TEXT PRIMARY KEY,
+			project TEXT NOT NULL,
+			branch TEXT NOT NULL,
+			from_agent TEXT,
+			to_agent TEXT,
+			type TEXT NOT NULL,
+			content TEXT,
+			mentions TEXT,
+			requires_human INTEGER DEFAULT 0,
+			read_by TEXT,
+			from_id TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+	`
+	if _, err := db.Exec(schemaSQL); err != nil {
+		t.Fatalf("failed to create schema: %v", err)
+	}
+
+	// Insert messages in the current project/branch scope
+	currentProject := "super"
+	currentBranch := "super"
+
+	_, err = db.Exec(
+		`INSERT INTO messages (id, project, branch, from_agent, type, content, mentions, read_by, from_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"msg-1", currentProject, currentBranch, "agent-1", "say", "message in current scope", "", "", "agent-1",
+	)
+	if err != nil {
+		t.Fatalf("failed to insert msg-1: %v", err)
+	}
+
+	// Insert message in different scope - should NOT be returned
+	_, err = db.Exec(
+		`INSERT INTO messages (id, project, branch, from_agent, type, content, mentions, read_by, from_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"msg-2", "other-project", "other-branch", "agent-2", "say", "message in other scope", "", "", "agent-2",
+	)
+	if err != nil {
+		t.Fatalf("failed to insert msg-2: %v", err)
+	}
+
+	// Call fetchMessagesCmd - it should use scope.CurrentContext()
+	cmd := fetchMessagesCmd(db, "")
+	msg := cmd()
+
+	// Verify we got the correct messages
+	messagesMsg, ok := msg.(messagesMsg)
+	if !ok {
+		if err, ok := msg.(error); ok {
+			t.Fatalf("fetchMessagesCmd returned error: %v", err)
+		}
+		t.Fatalf("expected messagesMsg, got %T", msg)
+	}
+
+	// Verify we got at least one message from current scope
+	if len(messagesMsg) == 0 {
+		t.Fatalf("expected at least 1 message, got 0 - fetchMessagesCmd is not using current scope")
+	}
+
+	// Verify we only got messages from the current scope
+	if len(messagesMsg) != 1 {
+		t.Errorf("expected 1 message from current scope, got %d", len(messagesMsg))
+	}
+
+	if messagesMsg[0].ID != "msg-1" {
+		t.Errorf("expected message ID %q, got %q", "msg-1", messagesMsg[0].ID)
+	}
+	if messagesMsg[0].Content != "message in current scope" {
+		t.Errorf("expected content %q, got %q", "message in current scope", messagesMsg[0].Content)
 	}
 }
