@@ -52,36 +52,22 @@ All commands working: `spawn`, `status`, `peek`, `log`, `prompt`, `say`, `ask`, 
 
 ### P1: Project/Branch Grouping in TUI (BLOCKING)
 
-**Why:** The sidebar needs project:branch headers as clickable targets. "Click project = orchestrator chat, click agent = transcript" (design doc line 350). Without headers, there's no way to select which orchestrator to chat with.
+**Why:** The sidebar needs project:branch headers as clickable targets. "Click project = orchestrator chat, click agent = transcript". Without headers, there's no way to select which orchestrator to chat with.
 
-**Design:** (from super-orchestrator-v0-design.md:331-350)
-```
-│ Projects     │
-│              │
-│ otto/main    │  ← Click this = chat with otto/main orchestrator
-│   @impl-1 *  │  ← Click this = view impl-1 transcript
-│   @reviewer  │
-│ other/branch │  ← Click this = chat with other/branch orchestrator
-│   @worker    │
-```
+**Plan:** `docs/plans/2025-12-27-tui-project-grouping-plan.md`
 
-**Scope:**
-- Modify `channels()` to group agents by project:branch
-- Add collapsible project:branch headers
-- Indent agents under their group
-- Clicking header selects that branch (for chat target)
-- Clicking agent selects that agent (for transcript view)
+**Key decisions:**
+- Orchestrator name: `@otto` (reserved, one per project/branch)
+- Lifecycle: On-demand (spawned when user sends first message)
+- 7 implementation tasks (TDD)
 
-### P2: Chat Input in TUI
+### P2: Agent Chat in TUI
 
-**Why:** TUI is currently read-only. Depends on P1 - needs a selected target to send messages to.
+**Why:** P1 covers orchestrator chat. This adds chat with individual agents.
 
 **Scope:**
-- Add `textinput` component from Bubble Tea
-- Input area at bottom of right panel
-- When project:branch selected: send to orchestrator (@otto for that branch)
-- When agent selected: send to that agent (via `otto prompt`)
-- Messages appear in chat/transcript view
+- When agent selected: show input, send via `otto prompt <agent>`
+- (Orchestrator chat is now in P1 Task 7)
 
 ### P3: Daemon Wake-ups (Superorchestrator Core)
 
@@ -102,6 +88,18 @@ All commands working: `spawn`, `status`, `peek`, `log`, `prompt`, `say`, `ask`, 
 - Activity: status changes, completions, agent spawns
 - Chat: messages mentioning @otto, user input
 
+### P5: File Diffs in Agent Transcripts
+
+**Why:** TUI transcript shows file changes but not the actual diffs. Users need to see what code was modified.
+
+**Design:** `docs/plans/2025-12-27-agent-diff-capture-design.md` (DRAFT)
+
+**Scope:**
+- Parse Claude Code JSON output (already emits diffs in `tool_use_result`)
+- For Codex: either use `codex app-server` protocol or compute via `git diff`
+- Store diffs in logs table (new `file_path`, `file_diff` columns?)
+- Display diffs in TUI transcript with syntax highlighting
+
 ---
 
 ## Future (Not V0)
@@ -119,6 +117,7 @@ All commands working: `spawn`, `status`, `peek`, `log`, `prompt`, `say`, `ask`, 
 - `docs/plans/2025-12-25-super-orchestrator-v0-phase-1-plan.md` - Backend implementation
 - `docs/plans/2025-12-25-super-orchestrator-v0-phase-2-plan.md` - TUI implementation
 - `docs/plans/2025-12-24-skill-injection-design.md` - Skill re-injection
+- `docs/plans/2025-12-27-agent-diff-capture-design.md` - Capturing file diffs (DRAFT)
 
 **Reference:**
 - `docs/ARCHITECTURE.md` - How Otto works

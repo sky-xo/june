@@ -2,13 +2,43 @@
 
 > **For Claude:** Use TDD to implement this plan task-by-task.
 
-**Goal:** Group agents under project/branch headers in the TUI sidebar and make headers selectable for orchestrator chat, with per-group collapse.
-
-**Architecture:** Extend the channel model to include project headers, maintain per-group expanded state, and treat headers as chat targets (project/branch) while agents remain transcript targets. Sidebar remains left panel; content panel swaps between orchestrator chat and agent transcript.
+**Goal:** Group agents under project/branch headers in the TUI sidebar, make headers selectable for orchestrator chat, and enable sending messages to spawn/prompt the orchestrator.
 
 **Tech Stack:** Go, Bubble Tea, Lip Gloss, SQLite (repo + scope).
 
 ---
+
+## Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Orchestrator name | `@otto` | Short, brand-consistent, matches tool name |
+| Orchestrator lifecycle | On-demand (lazy) | Spawned when user sends first message, not pre-created |
+| TUI restart behavior | Resume if running, spawn new if complete | Check agent status, prompt if busy, spawn if not |
+| Click project header | Show `@otto` chat for that project/branch | Right panel switches to orchestrator messages |
+| Click agent | Show agent transcript | Current behavior, unchanged |
+| Empty state | "No conversation yet" + input | Show message history if any, input always visible |
+
+### Orchestrator Spawning Logic
+
+When user sends a message to a project header:
+
+1. Check if `@otto` agent exists for this project/branch
+2. If exists and `status = busy` → `otto prompt @otto "message"`
+3. If exists and `status = complete` → spawn new `@otto` with message
+4. If doesn't exist → spawn new `@otto` with message
+
+Spawn command: `otto spawn codex "message" --name otto`
+
+### Not In Scope (Deferred)
+
+- Compaction handling / skill re-injection (P3)
+- Activity feed split (P4)
+- Daemon wake-ups (P3)
+
+---
+
+## Implementation Tasks
 
 ### Task 1: Add project/branch grouping to channel list
 
@@ -227,8 +257,47 @@ Expected: PASS
 
 ---
 
+### Task 7: Chat input and orchestrator spawning
+
+**Files:**
+- Modify: `internal/tui/watch.go`
+- Modify: `internal/tui/watch_test.go`
+
+**Step 1: Write failing tests for chat input**
+
+Add tests covering:
+- Text input component appears at bottom of right panel when project header selected.
+- Submitting message when no `@otto` exists spawns new orchestrator.
+- Submitting message when `@otto` is `busy` prompts existing agent.
+- Submitting message when `@otto` is `complete` spawns new orchestrator.
+
+**Step 2: Run tests to verify failure**
+
+Run: `go test ./internal/tui -run ChatInput -v`
+Expected: FAIL
+
+**Step 3: Implement chat input**
+
+- Add `textinput.Model` from Bubble Tea to the model.
+- Render input at bottom of right panel when project header is active.
+- On submit:
+  - Look up `@otto` agent for active project/branch via `repo.GetAgent()`
+  - If not found or `status != busy`: spawn via `otto spawn codex "message" --name otto`
+  - If found and `status == busy`: prompt via `otto prompt otto "message"`
+- Clear input after submit.
+- Show "Sending..." or similar feedback.
+
+**Step 4: Run tests**
+
+Run: `go test ./internal/tui -run ChatInput -v`
+Expected: PASS
+
+---
+
 ### Notes / Decisions
 
 - Use `project/branch` as the header label and ID key to avoid collisions and align with design spec.
 - Archived grouping mirrors active grouping for consistency.
 - Default expansion: expand groups for the current `scope.CurrentContext()` and keep others collapsed unless previously expanded.
+- Orchestrator is always named `@otto` (reserved name).
+- Chat input only appears when a project header is selected, not when viewing agent transcripts.
