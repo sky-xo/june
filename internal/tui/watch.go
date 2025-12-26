@@ -412,8 +412,7 @@ func (m model) transcriptContentLines(agentID string, width int) []string {
 			for _, para := range paragraphs {
 				if para == "" {
 					// Empty line - render as blank with background
-					// Use width-1 to avoid terminal background bleed at exact edge
-					padded := strings.Repeat(" ", width-1)
+					padded := strings.Repeat(" ", width)
 					lines = append(lines, inputStyle.Render(padded))
 					continue
 				}
@@ -427,12 +426,8 @@ func (m model) transcriptContentLines(agentID string, width int) []string {
 						// Continuation: small indent, flows naturally
 						displayLine = "  " + line
 					}
-					// Apply inputStyle to entire line, pad to width-1 to avoid terminal background bleed
-					padWidth := width - 1 - lipgloss.Width(displayLine)
-					if padWidth < 0 {
-						padWidth = 0
-					}
-					padded := displayLine + strings.Repeat(" ", padWidth)
+					// Apply inputStyle to entire line, pad to width
+					padded := displayLine + strings.Repeat(" ", width-lipgloss.Width(displayLine))
 					lines = append(lines, inputStyle.Render(padded))
 				}
 			}
