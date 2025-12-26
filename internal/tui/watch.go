@@ -10,6 +10,7 @@ import (
 
 	"otto/internal/process"
 	"otto/internal/repo"
+	"otto/internal/scope"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -832,7 +833,11 @@ func fetchMessagesCmd(db *sql.DB, sinceID string) tea.Cmd {
 
 func fetchAgentsCmd(db *sql.DB) tea.Cmd {
 	return func() tea.Msg {
-		agents, err := repo.ListAgents(db, repo.AgentFilter{})
+		ctx := scope.CurrentContext()
+		agents, err := repo.ListAgents(db, repo.AgentFilter{
+			Project: ctx.Project,
+			Branch:  ctx.Branch,
+		})
 		if err != nil {
 			return err
 		}
@@ -842,8 +847,8 @@ func fetchAgentsCmd(db *sql.DB) tea.Cmd {
 
 func fetchTranscriptsCmd(db *sql.DB, agentID, sinceID string) tea.Cmd {
 	return func() tea.Msg {
-		// TODO: Add project/branch awareness to TUI
-		entries, err := repo.ListLogs(db, "", "", agentID, sinceID)
+		ctx := scope.CurrentContext()
+		entries, err := repo.ListLogs(db, ctx.Project, ctx.Branch, agentID, sinceID)
 		if err != nil {
 			return err
 		}
@@ -853,7 +858,11 @@ func fetchTranscriptsCmd(db *sql.DB, agentID, sinceID string) tea.Cmd {
 
 func cleanupStaleAgentsCmd(db *sql.DB) tea.Cmd {
 	return func() tea.Msg {
-		agents, err := repo.ListAgents(db, repo.AgentFilter{})
+		ctx := scope.CurrentContext()
+		agents, err := repo.ListAgents(db, repo.AgentFilter{
+			Project: ctx.Project,
+			Branch:  ctx.Branch,
+		})
 		if err != nil {
 			return nil
 		}
