@@ -160,17 +160,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "up", "k":
 			if m.focusedPanel == panelAgents {
-				m.moveCursor(-1)
+				cmd = m.moveCursor(-1)
+				return m, cmd
 			} else {
 				m.viewport.LineUp(1)
 			}
 		case "down", "j":
 			if m.focusedPanel == panelAgents {
-				m.moveCursor(1)
+				cmd = m.moveCursor(1)
+				return m, cmd
 			} else {
 				m.viewport.LineDown(1)
 			}
 		case "enter":
+			// Enter still works for toggling archived section
 			return m, m.activateSelection()
 		case "esc":
 			m.activeChannelID = mainChannelID
@@ -190,37 +193,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focusedPanel == panelMessages {
 				m.viewport, cmd = m.viewport.Update(msg)
 				return m, cmd
-			}
-		}
-
-	case tea.MouseMsg:
-		leftWidth, _, _, _ := m.layout()
-		// Check if click is in left or right panel
-		if msg.Action == tea.MouseActionPress && (msg.Button == tea.MouseButtonLeft || msg.Button == tea.MouseButtonRight) {
-			if msg.X < leftWidth+2 { // +2 for border
-				m.focusedPanel = panelAgents
-				// Calculate which channel was clicked (Y=0 is border, Y=1 is title, Y=2+ is content)
-				clickedIndex := msg.Y - 2
-				channels := m.channels()
-				if clickedIndex >= 0 && clickedIndex < len(channels) {
-					m.cursorIndex = clickedIndex
-					cmd = m.activateSelection()
-				}
-			} else {
-				m.focusedPanel = panelMessages
-			}
-		}
-		// Route mouse wheel based on cursor position (not focused panel)
-		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
-			if msg.X >= leftWidth+2 { // Mouse is over right panel
-				m.viewport, cmd = m.viewport.Update(msg)
-				return m, cmd
-			}
-			// Mouse is over left panel - move cursor
-			if msg.Button == tea.MouseButtonWheelUp {
-				m.moveCursor(-1)
-			} else {
-				m.moveCursor(1)
 			}
 		}
 
@@ -485,16 +457,23 @@ func (m model) activeChannelLabel() string {
 }
 
 func (m model) renderChannelLine(ch channel, width int, cursor, active bool) string {
+	// Background style for cursor highlight
+	bgStyle := lipgloss.NewStyle()
+	if cursor {
+		bgStyle = bgStyle.Background(lipgloss.Color("8"))
+	}
+
 	label := ch.Name
 	labelWidth := width
 	if ch.Kind != "main" && ch.Kind != "archived_header" {
-		labelWidth = width - 2
+		labelWidth = width - 2 // Account for "● " prefix
 		if labelWidth < 1 {
 			labelWidth = 1
 		}
 	}
 	label = truncateString(label, labelWidth)
 
+	// Label style - bold if active
 	labelStyle := channelStyle
 	if active {
 		labelStyle = channelActiveStyle
@@ -503,25 +482,37 @@ func (m model) renderChannelLine(ch channel, width int, cursor, active bool) str
 		labelStyle = mutedStyle
 	}
 
-	line := labelStyle.Render(label)
+	// For agents, render indicator separately to preserve its color
 	if ch.Kind != "main" && ch.Kind != "archived_header" {
 		indicator, indicatorStyle := channelIndicator(ch)
-		line = fmt.Sprintf("%s %s", indicatorStyle.Render(indicator), line)
+		// Indicator keeps its foreground color always
+		styledIndicator := indicatorStyle.Render(indicator)
+		// Label gets background if cursor, keeps its style
+		styledLabel := bgStyle.Inherit(labelStyle).Render(label)
+		// Pad the remaining space with background
+		usedWidth := 2 + len(label) // "● " + label
+		padding := ""
+		if usedWidth < width {
+			padding = bgStyle.Render(strings.Repeat(" ", width-usedWidth))
+		}
+		return styledIndicator + " " + styledLabel + padding
 	}
-	line = padRight(line, width)
 
-	if cursor {
-		return lipgloss.NewStyle().Background(lipgloss.Color("8")).Render(line)
+	// For main and archived_header, apply background to entire line
+	styledLabel := bgStyle.Inherit(labelStyle).Render(label)
+	usedWidth := len(label)
+	padding := ""
+	if usedWidth < width {
+		padding = bgStyle.Render(strings.Repeat(" ", width-usedWidth))
 	}
-
-	return line
+	return styledLabel + padding
 }
 
-func (m *model) moveCursor(delta int) {
+func (m *model) moveCursor(delta int) tea.Cmd {
 	channels := m.channels()
 	if len(channels) == 0 {
 		m.cursorIndex = 0
-		return
+		return nil
 	}
 	m.cursorIndex += delta
 	if m.cursorIndex < 0 {
@@ -530,6 +521,8 @@ func (m *model) moveCursor(delta int) {
 	if m.cursorIndex >= len(channels) {
 		m.cursorIndex = len(channels) - 1
 	}
+	// Auto-select on cursor move
+	return m.activateSelection()
 }
 
 func (m *model) activateSelection() tea.Cmd {
@@ -895,7 +888,7 @@ func cleanupStaleAgentsCmd(db *sql.DB) tea.Cmd {
 // Run starts the TUI
 func Run(db *sql.DB) error {
 	m := NewModel(db)
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }
