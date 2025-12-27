@@ -107,6 +107,20 @@ All commands working: `spawn`, `status`, `peek`, `log`, `prompt`, `say`, `ask`, 
 - Uses same OAuth as `exec`
 - Consider for richer diff capture vs git-based approach
 
+### P6: Transcript Replace-on-Complete
+
+**Why:** Transcript view is noisy - shows every thinking step and command as permanent entries. Should show live status that collapses when turn completes.
+
+**Design:** `docs/plans/2025-12-28-tui-replace-on-complete-design.md` (DRAFT)
+
+**Key ideas:**
+- Ephemeral status (thinking + command) replaces in-place during turn
+- Collapses when turn completes, leaving only durable output
+- Spinner animation for liveness
+- Shimmer effect: brightness wave through text every ~4s
+- Failed commands persist for debugging
+- `otto say` messages are durable (not ephemeral)
+
 ---
 
 ## Future (Not V0)
@@ -123,6 +137,8 @@ All commands working: `spawn`, `status`, `peek`, `log`, `prompt`, `say`, `ask`, 
 - `docs/plans/2025-12-25-super-orchestrator-v0-design.md` - Main design doc
 - `docs/plans/2025-12-27-tui-project-grouping-plan.md` - P1 implementation (COMPLETE)
 - `docs/plans/2025-12-27-agent-diff-capture-design.md` - Capturing file diffs (DRAFT)
+- `docs/plans/2025-12-27-unified-chat-stream-design.md` - Unified chat stream for main view (Ready)
+- `docs/plans/2025-12-28-tui-replace-on-complete-design.md` - Transcript replace-on-complete (DRAFT)
 
 **Reference:**
 - `docs/ARCHITECTURE.md` - How Otto works
