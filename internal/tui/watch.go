@@ -1447,7 +1447,7 @@ func (m *model) handleChatSubmit() tea.Cmd {
 		return func() tea.Msg { return err }
 	}
 
-	// Execute command in background
+	// Execute command in background (non-blocking)
 	var cmd *exec.Cmd
 	if action == "spawn" {
 		cmd = exec.Command(ottoBin, "spawn", "codex", message, "--name", "otto")
@@ -1456,12 +1456,17 @@ func (m *model) handleChatSubmit() tea.Cmd {
 		cmd = exec.Command(ottoBin, "prompt", "otto", message)
 	}
 
-	return tea.ExecProcess(cmd, func(err error) tea.Msg {
-		if err != nil {
-			return err
-		}
-		return nil
-	})
+	// Detach from terminal - don't inherit stdin/stdout/stderr
+	cmd.Stdin = nil
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+
+	// Start in background (non-blocking)
+	if err := cmd.Start(); err != nil {
+		return func() tea.Msg { return err }
+	}
+
+	return nil
 }
 
 // Run starts the TUI
