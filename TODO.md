@@ -100,6 +100,8 @@ All commands working: `spawn`, `status`, `peek`, `log`, `prompt`, `say`, `ask`, 
 - Store diffs in logs table (new `file_path`, `file_diff` columns?)
 - Display diffs in TUI transcript with syntax highlighting
 
+**Research (2025-12-27):** `codex app-server` provides `turn/diff/updated` events with unified diffs. It's JSON-RPC over stdio, experimental but used by VS Code extension. Uses same OAuth as `exec`. Consider for richer diff capture vs git-based approach.
+
 ---
 
 ## Future (Not V0)
