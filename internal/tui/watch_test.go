@@ -1393,3 +1393,144 @@ func TestNavigationRespectsChannelListLength(t *testing.T) {
 		t.Error("expected cursor to stay at index 0")
 	}
 }
+
+func TestChatInputAppearsForProjectHeader(t *testing.T) {
+	m := NewModel(nil)
+	m.agents = []repo.Agent{
+		{Project: "otto", Branch: "main", Name: "impl-1", Status: "busy"},
+	}
+
+	// Select project header
+	m.activeChannelID = "otto/main"
+
+	// Should show chat input
+	if !m.showChatInput() {
+		t.Error("expected chat input to show when project header is selected")
+	}
+
+	// Select an agent - should NOT show chat input
+	m.activeChannelID = "impl-1"
+	if m.showChatInput() {
+		t.Error("expected chat input to be hidden when agent is selected")
+	}
+
+	// Select Main - should NOT show chat input
+	m.activeChannelID = mainChannelID
+	if m.showChatInput() {
+		t.Error("expected chat input to be hidden when Main is selected")
+	}
+}
+
+func TestGetOttoAgentForProjectBranch(t *testing.T) {
+	m := NewModel(nil)
+	m.agents = []repo.Agent{
+		{Project: "otto", Branch: "main", Name: "otto", Status: "complete"},
+		{Project: "other", Branch: "feature", Name: "otto", Status: "busy"},
+		{Project: "otto", Branch: "main", Name: "impl-1", Status: "busy"},
+	}
+
+	// Get otto for otto/main
+	otto := m.getOttoAgent("otto", "main")
+	if otto == nil {
+		t.Fatal("expected to find otto agent for otto/main")
+	}
+	if otto.Name != "otto" || otto.Project != "otto" || otto.Branch != "main" {
+		t.Errorf("got wrong agent: %+v", otto)
+	}
+
+	// Get otto for other/feature
+	otto = m.getOttoAgent("other", "feature")
+	if otto == nil {
+		t.Fatal("expected to find otto agent for other/feature")
+	}
+	if otto.Status != "busy" {
+		t.Errorf("expected busy otto, got %q", otto.Status)
+	}
+
+	// Get otto for non-existent project/branch
+	otto = m.getOttoAgent("nonexistent", "branch")
+	if otto != nil {
+		t.Error("expected nil for non-existent project/branch")
+	}
+}
+
+func TestIsOttoBusy(t *testing.T) {
+	m := NewModel(nil)
+	m.agents = []repo.Agent{
+		{Project: "otto", Branch: "main", Name: "otto", Status: "busy"},
+		{Project: "other", Branch: "feature", Name: "otto", Status: "complete"},
+	}
+
+	// otto/main has busy otto
+	if !m.isOttoBusy("otto", "main") {
+		t.Error("expected otto to be busy for otto/main")
+	}
+
+	// other/feature has complete otto
+	if m.isOttoBusy("other", "feature") {
+		t.Error("expected otto to NOT be busy for other/feature")
+	}
+
+	// No otto for this project/branch
+	if m.isOttoBusy("nonexistent", "branch") {
+		t.Error("expected otto to NOT be busy when it doesn't exist")
+	}
+}
+
+func TestGetChatSubmitAction(t *testing.T) {
+	tests := []struct {
+		name           string
+		agents         []repo.Agent
+		project        string
+		branch         string
+		expectedAction string // "none", "spawn", "prompt"
+	}{
+		{
+			name:           "otto is busy - no action",
+			agents:         []repo.Agent{{Project: "p", Branch: "b", Name: "otto", Status: "busy"}},
+			project:        "p",
+			branch:         "b",
+			expectedAction: "none",
+		},
+		{
+			name:           "otto complete - prompt",
+			agents:         []repo.Agent{{Project: "p", Branch: "b", Name: "otto", Status: "complete"}},
+			project:        "p",
+			branch:         "b",
+			expectedAction: "prompt",
+		},
+		{
+			name:           "otto failed - prompt",
+			agents:         []repo.Agent{{Project: "p", Branch: "b", Name: "otto", Status: "failed"}},
+			project:        "p",
+			branch:         "b",
+			expectedAction: "prompt",
+		},
+		{
+			name:           "no otto - spawn",
+			agents:         []repo.Agent{{Project: "p", Branch: "b", Name: "impl-1", Status: "busy"}},
+			project:        "p",
+			branch:         "b",
+			expectedAction: "spawn",
+		},
+		{
+			name:           "no agents - spawn",
+			agents:         []repo.Agent{},
+			project:        "p",
+			branch:         "b",
+			expectedAction: "spawn",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewModel(nil)
+			m.agents = tt.agents
+
+			action := m.getChatSubmitAction(tt.project, tt.branch)
+			if action != tt.expectedAction {
+				t.Errorf("expected action %q, got %q", tt.expectedAction, action)
+			}
+		})
+	}
+}

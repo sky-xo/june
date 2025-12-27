@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"hash/fnv"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"otto/internal/repo"
 	"otto/internal/scope"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -128,10 +130,16 @@ type model struct {
 	mouseY            int             // Mouse Y position for hover detection
 	err               error
 	viewport          viewport.Model
+	chatInput         textinput.Model // Text input for sending messages to @otto
 }
 
 func NewModel(db *sql.DB) model {
 	vp := viewport.New(0, 0)
+	ti := textinput.New()
+	ti.Placeholder = "Message @otto..."
+	ti.CharLimit = 500
+	ti.Width = 50
+
 	return model{
 		db:                db,
 		messages:          []repo.Message{},
@@ -143,6 +151,7 @@ func NewModel(db *sql.DB) model {
 		projectExpanded:   map[string]bool{}, // Default: all projects expanded
 		focusedPanel:      panelMessages,      // Default to content panel
 		viewport:          vp,
+		chatInput:         ti,
 	}
 }
 
@@ -160,6 +169,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// If chat input is visible and focused, handle input
+		if m.showChatInput() && m.focusedPanel == panelMessages {
+			switch msg.String() {
+			case "enter":
+				// Submit message
+				cmd := m.handleChatSubmit()
+				return m, cmd
+			case "esc":
+				// Clear input and blur
+				m.chatInput.SetValue("")
+				m.chatInput.Blur()
+			default:
+				// Pass to textinput
+				m.chatInput, cmd = m.chatInput.Update(msg)
+				return m, cmd
+			}
+		}
+
+		// Global key handling
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -167,42 +195,52 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Toggle focus between panels
 			if m.focusedPanel == panelAgents {
 				m.focusedPanel = panelMessages
+				// Focus chat input if visible
+				if m.showChatInput() {
+					m.chatInput.Focus()
+				}
 			} else {
 				m.focusedPanel = panelAgents
+				m.chatInput.Blur()
 			}
 		case "up", "k":
 			if m.focusedPanel == panelAgents {
 				cmd = m.moveCursor(-1)
 				return m, cmd
-			} else {
+			} else if !m.showChatInput() {
+				// Only scroll viewport if chat input is not visible
 				m.viewport.LineUp(1)
 			}
 		case "down", "j":
 			if m.focusedPanel == panelAgents {
 				cmd = m.moveCursor(1)
 				return m, cmd
-			} else {
+			} else if !m.showChatInput() {
+				// Only scroll viewport if chat input is not visible
 				m.viewport.LineDown(1)
 			}
 		case "enter":
-			// Enter still works for toggling archived section
-			return m, m.activateSelection()
+			// Enter works for toggling archived section in agent panel
+			if m.focusedPanel == panelAgents {
+				return m, m.activateSelection()
+			}
 		case "esc":
 			m.activeChannelID = mainChannelID
 			m.cursorIndex = 0
 			m.focusedPanel = panelMessages
+			m.chatInput.Blur()
 			m.updateViewportContent()
 		case "g":
-			if m.focusedPanel == panelMessages {
+			if m.focusedPanel == panelMessages && !m.showChatInput() {
 				m.viewport.GotoTop()
 			}
 		case "G":
-			if m.focusedPanel == panelMessages {
+			if m.focusedPanel == panelMessages && !m.showChatInput() {
 				m.viewport.GotoBottom()
 			}
 		default:
 			// Pass other keys to viewport for scrolling (pgup, pgdn, etc)
-			if m.focusedPanel == panelMessages {
+			if m.focusedPanel == panelMessages && !m.showChatInput() {
 				m.viewport, cmd = m.viewport.Update(msg)
 				return m, cmd
 			}
@@ -248,6 +286,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		_, rightWidth, _, contentHeight := m.layout()
 		m.viewport.Width = rightWidth - 2 // Account for border
 		m.viewport.Height = contentHeight
+
+		// Update chat input width
+		m.chatInput.Width = rightWidth - 4 // Account for border + some padding
 
 		// Update viewport content with new dimensions
 		m.updateViewportContent()
@@ -340,8 +381,28 @@ func (m model) View() string {
 	activeLabel := m.activeChannelLabel()
 	rightTitle := panelTitleStyle.Width(rightWidth - 2).Render(activeLabel)
 
-	// Use viewport for content area
-	content := m.viewport.View()
+	// Build right panel content
+	var rightContent string
+	if m.showChatInput() {
+		// Chat input is visible - render viewport + input
+		project, branch := parseProjectBranch(m.activeChannelID)
+
+		// Render chat input with status hint
+		var inputLine string
+		if m.isOttoBusy(project, branch) {
+			// Otto is busy - show disabled input
+			disabledStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+			inputLine = disabledStyle.Render("Otto is working...")
+		} else {
+			// Normal input
+			inputLine = m.chatInput.View()
+		}
+
+		rightContent = m.viewport.View() + "\n" + inputLine
+	} else {
+		// No chat input - just viewport
+		rightContent = m.viewport.View()
+	}
 
 	rightBorderStyle := unfocusedBorderStyle
 	if m.focusedPanel == panelMessages {
@@ -350,7 +411,7 @@ func (m model) View() string {
 	rightPanel := rightBorderStyle.
 		Width(rightWidth).
 		Height(panelHeight).
-		Render(rightTitle + "\n" + content)
+		Render(rightTitle + "\n" + rightContent)
 
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
@@ -797,9 +858,14 @@ func (m *model) activateSelection() tea.Cmd {
 		// This allows the right panel to show orchestrator chat for this project/branch
 		m.activeChannelID = selected.ID
 		m.updateViewportContent()
+		// Focus chat input when selecting project header
+		m.chatInput.Focus()
 		return nil
 	}
 	m.activeChannelID = selected.ID
+
+	// Blur chat input when selecting non-project items
+	m.chatInput.Blur()
 
 	// Update viewport content when switching channels
 	m.updateViewportContent()
@@ -872,6 +938,10 @@ func (m model) layout() (leftWidth, rightWidth, panelHeight, contentHeight int) 
 
 	// Content height inside panel (1 for title row)
 	contentHeight = panelHeight - 1
+	// If chat input is shown, reserve 1 line for it
+	if m.showChatInput() {
+		contentHeight = contentHeight - 1
+	}
 	if contentHeight < 1 {
 		contentHeight = 1
 	}
@@ -1152,6 +1222,92 @@ func cleanupStaleAgentsCmd(db *sql.DB) tea.Cmd {
 		}
 		return nil
 	}
+}
+
+// showChatInput returns true if the chat input should be visible
+// Only show when a project header is selected (not Main, not individual agents)
+func (m model) showChatInput() bool {
+	return isProjectHeader(m.activeChannelID)
+}
+
+// getOttoAgent finds the @otto agent for the given project/branch
+// Returns nil if not found
+func (m model) getOttoAgent(project, branch string) *repo.Agent {
+	for i := range m.agents {
+		agent := &m.agents[i]
+		if agent.Project == project && agent.Branch == branch && agent.Name == "otto" {
+			return agent
+		}
+	}
+	return nil
+}
+
+// isOttoBusy checks if @otto exists and is busy for the given project/branch
+func (m model) isOttoBusy(project, branch string) bool {
+	otto := m.getOttoAgent(project, branch)
+	if otto == nil {
+		return false
+	}
+	return otto.Status == "busy"
+}
+
+// getChatSubmitAction determines what action to take when user submits a message
+// Returns: "none" (otto is busy), "spawn" (no otto exists), "prompt" (otto exists and is finished)
+func (m model) getChatSubmitAction(project, branch string) string {
+	otto := m.getOttoAgent(project, branch)
+	if otto == nil {
+		return "spawn"
+	}
+	if otto.Status == "busy" {
+		return "none"
+	}
+	// Otto exists and is complete or failed - resume session
+	return "prompt"
+}
+
+// handleChatSubmit processes chat input submission
+// Spawns or prompts @otto based on current state
+func (m *model) handleChatSubmit() tea.Cmd {
+	if !m.showChatInput() {
+		return nil
+	}
+
+	message := strings.TrimSpace(m.chatInput.Value())
+	if message == "" {
+		return nil
+	}
+
+	// Parse project/branch from active channel ID
+	project, branch := parseProjectBranch(m.activeChannelID)
+	if project == "" || branch == "" {
+		return nil
+	}
+
+	// Determine action
+	action := m.getChatSubmitAction(project, branch)
+	if action == "none" {
+		// Otto is busy - ignore submit
+		return nil
+	}
+
+	// Clear input immediately
+	m.chatInput.SetValue("")
+
+	// Execute command in background
+	var cmd *exec.Cmd
+	if action == "spawn" {
+		cmd = exec.Command("otto", "spawn", "codex", message, "--name", "otto")
+	} else {
+		// action == "prompt"
+		cmd = exec.Command("otto", "prompt", "otto", message)
+	}
+
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		if err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 // Run starts the TUI
