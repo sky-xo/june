@@ -186,6 +186,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Clear input and blur
 				m.chatInput.SetValue("")
 				m.chatInput.Blur()
+			case "up", "down", "k", "j", "g", "G", "pgup", "pgdown", "home", "end":
+				// Navigation keys should fall through to viewport handling
+				// Don't capture them in the text input
 			default:
 				// Pass to textinput only if otto is not busy
 				if !ottoBusy {
@@ -866,8 +869,7 @@ func (m *model) activateSelection() tea.Cmd {
 		// This allows the right panel to show orchestrator chat for this project/branch
 		m.activeChannelID = selected.ID
 		m.updateViewportContent()
-		// Focus chat input when selecting project header
-		m.chatInput.Focus()
+		// Don't focus the chat input here - it will be focused when user switches to panelMessages via Tab
 		return nil
 	}
 	m.activeChannelID = selected.ID
