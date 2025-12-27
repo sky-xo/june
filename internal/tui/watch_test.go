@@ -475,8 +475,8 @@ func TestFetchMessagesUsesCurrentScope(t *testing.T) {
 		t.Fatalf("failed to insert msg-2: %v", err)
 	}
 
-	// Call fetchMessagesCmd - it should use scope.CurrentContext()
-	cmd := fetchMessagesCmd(db, "")
+	// Call fetchMessagesCmd with explicit project/branch from current context
+	cmd := fetchMessagesCmd(db, currentProject, currentBranch, "")
 	msg := cmd()
 
 	// Verify we got the correct messages
@@ -1126,4 +1126,79 @@ func stripAnsi(s string) string {
 		result.WriteByte(s[i])
 	}
 	return result.String()
+}
+
+func TestProjectHeaderMessagesUsesProjectScope(t *testing.T) {
+	// Create in-memory database with schema
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Manually create schema
+	schemaSQL := `
+		CREATE TABLE IF NOT EXISTS messages (
+			id TEXT PRIMARY KEY,
+			project TEXT NOT NULL,
+			branch TEXT NOT NULL,
+			from_agent TEXT,
+			to_agent TEXT,
+			type TEXT NOT NULL,
+			content TEXT,
+			mentions TEXT,
+			requires_human INTEGER DEFAULT 0,
+			read_by TEXT,
+			from_id TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+	`
+	if _, err := db.Exec(schemaSQL); err != nil {
+		t.Fatalf("failed to create schema: %v", err)
+	}
+
+	// Insert messages for different projects/branches
+	_, err = db.Exec(
+		`INSERT INTO messages (id, project, branch, from_agent, type, content, mentions, read_by, from_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"msg-otto-main", "otto", "main", "user", "say", "message for otto/main", "[]", "[]", "user",
+	)
+	if err != nil {
+		t.Fatalf("failed to insert otto/main message: %v", err)
+	}
+
+	_, err = db.Exec(
+		`INSERT INTO messages (id, project, branch, from_agent, type, content, mentions, read_by, from_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"msg-other-feature", "other", "feature", "user", "say", "message for other/feature", "[]", "[]", "user",
+	)
+	if err != nil {
+		t.Fatalf("failed to insert other/feature message: %v", err)
+	}
+
+	// Fetch messages with explicit project/branch (new signature)
+	// This should use otto/main scope, not the current git context
+	cmd := fetchMessagesCmd(db, "otto", "main", "")
+	msg := cmd()
+
+	// Verify we got the correct messages
+	messagesMsg, ok := msg.(messagesMsg)
+	if !ok {
+		if err, ok := msg.(error); ok {
+			t.Fatalf("fetchMessagesCmd returned error: %v", err)
+		}
+		t.Fatalf("expected messagesMsg, got %T", msg)
+	}
+
+	// Should get only otto/main messages
+	if len(messagesMsg) != 1 {
+		t.Errorf("expected 1 message from otto/main scope, got %d", len(messagesMsg))
+	}
+
+	if len(messagesMsg) > 0 {
+		if messagesMsg[0].ID != "msg-otto-main" {
+			t.Errorf("expected message ID %q, got %q", "msg-otto-main", messagesMsg[0].ID)
+		}
+		if messagesMsg[0].Content != "message for otto/main" {
+			t.Errorf("expected content %q, got %q", "message for otto/main", messagesMsg[0].Content)
+		}
+	}
 }

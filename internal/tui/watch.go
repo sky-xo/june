@@ -147,9 +147,10 @@ func NewModel(db *sql.DB) model {
 }
 
 func (m model) Init() tea.Cmd {
+	ctx := scope.CurrentContext()
 	return tea.Batch(
 		tickCmd(),
-		fetchMessagesCmd(m.db, ""),
+		fetchMessagesCmd(m.db, ctx.Project, ctx.Branch, ""),
 		fetchAgentsCmd(m.db),
 	)
 }
@@ -252,13 +253,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateViewportContent()
 
 	case tickMsg:
+		// Determine which project/branch to fetch messages for
+		var project, branch string
+		if isProjectHeader(m.activeChannelID) {
+			// If a project header is selected, use its project/branch
+			project, branch = parseProjectBranch(m.activeChannelID)
+		} else {
+			// Otherwise, use the current git context
+			ctx := scope.CurrentContext()
+			project = ctx.Project
+			branch = ctx.Branch
+		}
+
 		cmds := []tea.Cmd{
 			tickCmd(),
 			cleanupStaleAgentsCmd(m.db),
-			fetchMessagesCmd(m.db, m.lastMessageID),
+			fetchMessagesCmd(m.db, project, branch, m.lastMessageID),
 			fetchAgentsCmd(m.db),
 		}
-		if m.activeChannelID != mainChannelID {
+		if m.activeChannelID != mainChannelID && !isProjectHeader(m.activeChannelID) {
 			cmds = append(cmds, fetchTranscriptsCmd(m.db, m.activeChannelID, m.lastTranscriptIDs[m.activeChannelID]))
 		}
 		return m, tea.Batch(cmds...)
@@ -268,10 +281,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			atBottom := m.viewport.AtBottom()
 			m.messages = append(m.messages, msg...)
 			m.lastMessageID = msg[len(msg)-1].ID
-			if atBottom && m.activeChannelID == mainChannelID {
+			// Update viewport if we're viewing orchestrator chat (Main or a project header)
+			showingOrchestratorChat := m.activeChannelID == mainChannelID || isProjectHeader(m.activeChannelID)
+			if atBottom && showingOrchestratorChat {
 				m.updateViewportContent()
 				m.viewport.GotoBottom()
-			} else if m.activeChannelID == mainChannelID {
+			} else if showingOrchestratorChat {
 				m.updateViewportContent()
 			}
 		}
@@ -622,6 +637,22 @@ func projectBranchKey(project, branch string) string {
 	return project + "/" + branch
 }
 
+// parseProjectBranch parses a channel ID in the format "project/branch" and returns the components
+// Returns empty strings if the ID is not in the expected format
+func parseProjectBranch(channelID string) (project, branch string) {
+	parts := strings.SplitN(channelID, "/", 2)
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return "", ""
+}
+
+// isProjectHeader checks if a channel ID is a project/branch header (format: "project/branch")
+func isProjectHeader(channelID string) bool {
+	project, branch := parseProjectBranch(channelID)
+	return project != "" && branch != ""
+}
+
 // isProjectExpanded checks if a project/branch group is expanded
 // Default is expanded (true) if not explicitly set
 func (m model) isProjectExpanded(key string) bool {
@@ -802,10 +833,12 @@ func (m *model) updateViewportContent() {
 	contentWidth := rightWidth - 2 // Account for border
 
 	var content string
-	if m.activeChannelID == mainChannelID {
+	if m.activeChannelID == mainChannelID || isProjectHeader(m.activeChannelID) {
+		// Show orchestrator chat (messages) for Main or project headers
 		lines := m.mainContentLines(contentWidth)
 		content = strings.Join(lines, "\n")
 	} else {
+		// Show agent transcript for individual agents
 		lines := m.transcriptContentLines(m.activeChannelID, contentWidth)
 		content = strings.Join(lines, "\n")
 	}
@@ -1047,12 +1080,11 @@ func tickCmd() tea.Cmd {
 	})
 }
 
-func fetchMessagesCmd(db *sql.DB, sinceID string) tea.Cmd {
+func fetchMessagesCmd(db *sql.DB, project, branch, sinceID string) tea.Cmd {
 	return func() tea.Msg {
-		ctx := scope.CurrentContext()
 		filter := repo.MessageFilter{
-			Project: ctx.Project,
-			Branch:  ctx.Branch,
+			Project: project,
+			Branch:  branch,
 		}
 		if sinceID != "" {
 			filter.SinceID = sinceID
