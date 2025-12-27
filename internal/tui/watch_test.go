@@ -1202,3 +1202,194 @@ func TestProjectHeaderMessagesUsesProjectScope(t *testing.T) {
 		}
 	}
 }
+
+func TestProjectHeaderMouseClick(t *testing.T) {
+	m := NewModel(nil)
+	m.agents = []repo.Agent{
+		{Project: "otto", Branch: "main", Name: "impl-1", Status: "busy"},
+		{Project: "otto", Branch: "main", Name: "reviewer", Status: "blocked"},
+		{Project: "other", Branch: "feature", Name: "worker", Status: "complete"},
+	}
+
+	channels := m.channels()
+	// Expected structure:
+	// 0: Main
+	// 1: other/feature header
+	// 2:   worker
+	// 3: otto/main header
+	// 4:   impl-1
+	// 5:   reviewer
+
+	// Find the otto/main header index
+	headerIndex := -1
+	for i, ch := range channels {
+		if ch.ID == "otto/main" && ch.Kind == "project_header" {
+			headerIndex = i
+			break
+		}
+	}
+	if headerIndex == -1 {
+		t.Fatal("expected to find otto/main header")
+	}
+
+	// Simulate mouse click on project header
+	// Mouse Y position is index + 2 (accounting for border + title row)
+	m.cursorIndex = headerIndex
+	_ = m.activateSelection()
+
+	// Should set activeChannelID to project header
+	if m.activeChannelID != "otto/main" {
+		t.Errorf("expected activeChannelID to be 'otto/main', got %q", m.activeChannelID)
+	}
+
+	// Should toggle expansion (was expanded by default, now collapsed)
+	if m.isProjectExpanded("otto/main") {
+		t.Error("expected otto/main to be collapsed after click")
+	}
+}
+
+func TestNavigationSkipsCollapsedAgents(t *testing.T) {
+	// This test verifies that navigation works correctly with collapsed project groups.
+	// When collapsed agents are not in the channel list, cursor navigation skips them naturally.
+
+	m := NewModel(nil)
+	m.projectExpanded = map[string]bool{
+		"otto/main":     false, // Collapse otto/main
+		"other/feature": true,  // Keep other/feature expanded to avoid auto-toggle
+	}
+	m.agents = []repo.Agent{
+		{Project: "otto", Branch: "main", Name: "impl-1", Status: "busy"},
+		{Project: "otto", Branch: "main", Name: "reviewer", Status: "blocked"},
+		{Project: "other", Branch: "feature", Name: "worker", Status: "complete"},
+	}
+
+	channels := m.channels()
+	// Expected structure (otto/main collapsed, other/feature expanded):
+	// 0: Main
+	// 1: other/feature header
+	// 2:   worker
+	// 3: otto/main header (collapsed, agents hidden)
+
+	if len(channels) != 4 {
+		t.Fatalf("expected 4 channels with otto/main collapsed, got %d", len(channels))
+	}
+
+	// Verify otto/main agents are not in the list
+	for _, ch := range channels {
+		if ch.ID == "impl-1" || ch.ID == "reviewer" {
+			t.Errorf("expected otto/main agents to be hidden when collapsed, found %q", ch.ID)
+		}
+	}
+
+	// Navigate through the list - should only see visible channels
+	m.cursorIndex = 0 // Main
+	if channels[m.cursorIndex].ID != mainChannelID {
+		t.Errorf("expected cursor at Main, got %q", channels[m.cursorIndex].ID)
+	}
+
+	// Move down - should go to other/feature header (index 1)
+	m.cursorIndex = 1
+	if channels[m.cursorIndex].ID != "other/feature" {
+		t.Errorf("expected cursor at other/feature header, got %q", channels[m.cursorIndex].ID)
+	}
+
+	// Move down - should go to worker (index 2)
+	m.cursorIndex = 2
+	if channels[m.cursorIndex].ID != "worker" {
+		t.Errorf("expected cursor at worker, got %q", channels[m.cursorIndex].ID)
+	}
+
+	// Move down - should go to otto/main header (index 3), skipping hidden impl-1 and reviewer
+	m.cursorIndex = 3
+	if channels[m.cursorIndex].ID != "otto/main" {
+		t.Errorf("expected cursor at otto/main header, got %q", channels[m.cursorIndex].ID)
+	}
+
+	// Verify we can't move past the end
+	m.cursorIndex = 3
+	_ = m.moveCursor(1) // Try to move down
+	if m.cursorIndex != 3 {
+		t.Errorf("expected cursor to clamp at last channel (3), got %d", m.cursorIndex)
+	}
+
+	// Verify we can't move before the beginning
+	m.cursorIndex = 0
+	_ = m.moveCursor(-1) // Try to move up
+	if m.cursorIndex != 0 {
+		t.Errorf("expected cursor to clamp at first channel (0), got %d", m.cursorIndex)
+	}
+}
+
+func TestEnsureSelectionHandlesCollapsedAgents(t *testing.T) {
+	m := NewModel(nil)
+	m.agents = []repo.Agent{
+		{Project: "otto", Branch: "main", Name: "impl-1", Status: "busy"},
+		{Project: "otto", Branch: "main", Name: "reviewer", Status: "blocked"},
+		{Project: "other", Branch: "feature", Name: "worker", Status: "complete"},
+	}
+
+	// Start with expanded project, cursor on impl-1 (index 4)
+	channels := m.channels()
+	impl1Index := -1
+	for i, ch := range channels {
+		if ch.ID == "impl-1" {
+			impl1Index = i
+			break
+		}
+	}
+	if impl1Index == -1 {
+		t.Fatal("expected to find impl-1")
+	}
+
+	m.cursorIndex = impl1Index
+	m.activeChannelID = "impl-1"
+
+	// Now collapse otto/main - impl-1 disappears from channel list
+	m.projectExpanded["otto/main"] = false
+
+	// Call ensureSelection - should adjust cursor to valid position
+	m.ensureSelection()
+
+	// Cursor should be adjusted to valid index
+	channels = m.channels()
+	if m.cursorIndex >= len(channels) {
+		t.Errorf("expected cursor index < %d after collapse, got %d", len(channels), m.cursorIndex)
+	}
+
+	// Active channel should remain Main if the selected agent no longer exists in channel list
+	if m.activeChannelID != mainChannelID {
+		t.Errorf("expected activeChannelID to be 'main' after agent hidden, got %q", m.activeChannelID)
+	}
+}
+
+func TestNavigationRespectsChannelListLength(t *testing.T) {
+	m := NewModel(nil)
+	m.agents = []repo.Agent{
+		{Project: "otto", Branch: "main", Name: "impl-1", Status: "busy"},
+	}
+
+	channels := m.channels()
+	// Expected: Main, otto/main header, impl-1 (3 channels)
+
+	if len(channels) != 3 {
+		t.Fatalf("expected 3 channels, got %d", len(channels))
+	}
+
+	// Start at last channel (impl-1)
+	m.cursorIndex = len(channels) - 1
+
+	// Move down - should clamp to last index
+	_ = m.moveCursor(1)
+	if m.cursorIndex != len(channels)-1 {
+		t.Errorf("expected cursor to stay at last index %d, got %d", len(channels)-1, m.cursorIndex)
+	}
+
+	// Move up to first channel
+	m.cursorIndex = 0
+
+	// Move up - should clamp to 0
+	_ = m.moveCursor(-1)
+	if m.cursorIndex != 0 {
+		t.Error("expected cursor to stay at index 0")
+	}
+}
