@@ -229,9 +229,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.viewport.LineDown(1)
 			}
 		case "enter":
-			// Enter works for toggling archived section in agent panel
+			// Enter toggles expand/collapse for headers
 			if m.focusedPanel == panelAgents {
-				return m, m.activateSelection()
+				return m, m.toggleSelection()
+			}
+		case "left", "h":
+			// Left collapses current header
+			if m.focusedPanel == panelAgents {
+				m.collapseSelection()
+			}
+		case "right", "l":
+			// Right expands current header
+			if m.focusedPanel == panelAgents {
+				m.expandSelection()
 			}
 		case "esc":
 			m.activeChannelID = mainChannelID
@@ -593,7 +603,7 @@ func (m model) transcriptContentLines(agentID string, width int) []string {
 }
 
 func (m model) channels() []channel {
-	channels := []channel{{ID: mainChannelID, Name: "Main", Kind: "main"}}
+	channels := []channel{}
 	if len(m.agents) == 0 {
 		return channels
 	}
@@ -623,7 +633,12 @@ func (m model) channels() []channel {
 	sort.Strings(groupKeys)
 
 	// Build channels with headers and grouped agents
-	for _, key := range groupKeys {
+	for i, key := range groupKeys {
+		// Add separator between project groups (not before first)
+		if i > 0 {
+			channels = append(channels, channel{Kind: "separator"})
+		}
+
 		// Add project/branch header
 		channels = append(channels, channel{
 			ID:    key,
@@ -652,6 +667,8 @@ func (m model) channels() []channel {
 
 	// Archived section at the bottom, grouped by project/branch when expanded
 	if len(archivedAgents) > 0 {
+		// Add separator before archived section
+		channels = append(channels, channel{Kind: "separator"})
 		channels = append(channels, channel{
 			ID:   archivedChannelID,
 			Name: fmt.Sprintf("Archived (%d)", len(archivedAgents)),
@@ -743,6 +760,11 @@ func (m model) activeChannelLabel() string {
 }
 
 func (m model) renderChannelLine(ch channel, width int, cursor, active bool) string {
+	// Separator renders as empty line
+	if ch.Kind == "separator" {
+		return ""
+	}
+
 	// Background style for cursor highlight
 	bgStyle := lipgloss.NewStyle()
 	if cursor {
@@ -848,28 +870,39 @@ func (m *model) moveCursor(delta int) tea.Cmd {
 	if m.cursorIndex >= len(channels) {
 		m.cursorIndex = len(channels) - 1
 	}
+	// Skip separator channels
+	for m.cursorIndex >= 0 && m.cursorIndex < len(channels) && channels[m.cursorIndex].Kind == "separator" {
+		m.cursorIndex += delta
+	}
+	// Clamp again after skipping
+	if m.cursorIndex < 0 {
+		m.cursorIndex = 0
+	}
+	if m.cursorIndex >= len(channels) {
+		m.cursorIndex = len(channels) - 1
+	}
 	// Auto-select on cursor move
 	return m.activateSelection()
 }
 
+// activateSelection updates activeChannelID when cursor moves (no toggle)
 func (m *model) activateSelection() tea.Cmd {
 	channels := m.channels()
 	if len(channels) == 0 || m.cursorIndex >= len(channels) {
 		return nil
 	}
 	selected := channels[m.cursorIndex]
-	if selected.Kind == "archived_header" {
-		m.archivedExpanded = !m.archivedExpanded
+	if selected.Kind == "separator" {
 		return nil
 	}
 	if selected.Kind == "project_header" {
-		// Toggle project header expand/collapse
-		m.projectExpanded[selected.ID] = !m.isProjectExpanded(selected.ID)
-		// Also set activeChannelID to the project header ID
-		// This allows the right panel to show orchestrator chat for this project/branch
+		// Just set activeChannelID (no toggle on cursor move)
 		m.activeChannelID = selected.ID
 		m.updateViewportContent()
-		// Don't focus the chat input here - it will be focused when user switches to panelMessages via Tab
+		return nil
+	}
+	if selected.Kind == "archived_header" {
+		// Don't change activeChannelID for archived header
 		return nil
 	}
 	m.activeChannelID = selected.ID
@@ -884,6 +917,53 @@ func (m *model) activateSelection() tea.Cmd {
 		return fetchTranscriptsCmd(m.db, selected.ID, m.lastTranscriptIDs[selected.ID])
 	}
 	return nil
+}
+
+// toggleSelection toggles expand/collapse for headers (Enter/left/right)
+func (m *model) toggleSelection() tea.Cmd {
+	channels := m.channels()
+	if len(channels) == 0 || m.cursorIndex >= len(channels) {
+		return nil
+	}
+	selected := channels[m.cursorIndex]
+	if selected.Kind == "archived_header" {
+		m.archivedExpanded = !m.archivedExpanded
+		return nil
+	}
+	if selected.Kind == "project_header" {
+		m.projectExpanded[selected.ID] = !m.isProjectExpanded(selected.ID)
+		return nil
+	}
+	// For non-headers, just activate
+	return m.activateSelection()
+}
+
+// collapseSelection collapses the current header (left arrow)
+func (m *model) collapseSelection() {
+	channels := m.channels()
+	if len(channels) == 0 || m.cursorIndex >= len(channels) {
+		return
+	}
+	selected := channels[m.cursorIndex]
+	if selected.Kind == "archived_header" {
+		m.archivedExpanded = false
+	} else if selected.Kind == "project_header" {
+		m.projectExpanded[selected.ID] = false
+	}
+}
+
+// expandSelection expands the current header (right arrow)
+func (m *model) expandSelection() {
+	channels := m.channels()
+	if len(channels) == 0 || m.cursorIndex >= len(channels) {
+		return
+	}
+	selected := channels[m.cursorIndex]
+	if selected.Kind == "archived_header" {
+		m.archivedExpanded = true
+	} else if selected.Kind == "project_header" {
+		m.projectExpanded[selected.ID] = true
+	}
 }
 
 func (m *model) ensureSelection() {
@@ -1179,11 +1259,8 @@ func fetchMessagesCmd(db *sql.DB, project, branch, sinceID string) tea.Cmd {
 
 func fetchAgentsCmd(db *sql.DB) tea.Cmd {
 	return func() tea.Msg {
-		ctx := scope.CurrentContext()
-		agents, err := repo.ListAgents(db, repo.AgentFilter{
-			Project: ctx.Project,
-			Branch:  ctx.Branch,
-		})
+		// Fetch all agents across all projects (TUI groups by project/branch)
+		agents, err := repo.ListAgents(db, repo.AgentFilter{})
 		if err != nil {
 			return err
 		}

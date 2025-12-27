@@ -33,6 +33,8 @@ func TestNewModel(t *testing.T) {
 	if len(m.agents) != 0 {
 		t.Error("expected empty agents list")
 	}
+	// Default activeChannelID is still mainChannelID even though Main channel no longer exists
+	// This is handled by ensureSelection() when agents are loaded
 	if m.activeChannelID != mainChannelID {
 		t.Errorf("expected activeChannelID to be %q", mainChannelID)
 	}
@@ -82,7 +84,7 @@ func TestChannelOrdering(t *testing.T) {
 	}
 }
 
-func TestChannelsIncludeMainFirst(t *testing.T) {
+func TestChannelsIncludeProjectHeaderFirst(t *testing.T) {
 	m := NewModel(nil)
 	m.agents = []repo.Agent{
 		{Project: "test", Branch: "main", Name: "agent-2", Status: "complete"},
@@ -90,19 +92,19 @@ func TestChannelsIncludeMainFirst(t *testing.T) {
 	}
 
 	channels := m.channels()
-	// Expected: Main, test/main header, agent-1 (busy first), agent-2
-	if len(channels) != 4 {
-		t.Fatalf("expected 4 channels, got %d", len(channels))
+	// Expected: test/main header, agent-1 (busy first), agent-2
+	if len(channels) != 3 {
+		t.Fatalf("expected 3 channels, got %d", len(channels))
 	}
-	if channels[0].ID != mainChannelID {
-		t.Fatalf("expected main channel first, got %q", channels[0].ID)
+	if channels[0].Kind != "project_header" {
+		t.Fatalf("expected project_header at index 0, got %q", channels[0].Kind)
 	}
-	if channels[1].Kind != "project_header" {
-		t.Fatalf("expected project_header at index 1, got %q", channels[1].Kind)
+	if channels[0].ID != "test/main" {
+		t.Fatalf("expected test/main header first, got %q", channels[0].ID)
 	}
 	// Agents should be sorted by status: busy before complete
-	if channels[2].ID != "agent-1" || channels[3].ID != "agent-2" {
-		t.Fatalf("unexpected agent order: %q, %q", channels[2].ID, channels[3].ID)
+	if channels[1].ID != "agent-1" || channels[2].ID != "agent-2" {
+		t.Fatalf("unexpected agent order: %q, %q", channels[1].ID, channels[2].ID)
 	}
 }
 
@@ -121,18 +123,18 @@ func TestArchivedAgentsHiddenByDefault(t *testing.T) {
 	}
 
 	channels := m.channels()
-	// Expected: Main, test/main header, agent-1, Archived header
+	// Expected: test/main header, agent-1, separator, Archived header
 	if len(channels) != 4 {
 		t.Fatalf("expected 4 channels, got %d", len(channels))
 	}
-	if channels[0].ID != mainChannelID {
-		t.Fatalf("expected main channel first, got %q", channels[0].ID)
+	if channels[0].Kind != "project_header" {
+		t.Fatalf("expected project_header at index 0, got %q", channels[0].Kind)
 	}
-	if channels[1].Kind != "project_header" {
-		t.Fatalf("expected project_header at index 1, got %q", channels[1].Kind)
+	if channels[1].ID != "agent-1" {
+		t.Fatalf("expected active agent at index 1, got %q", channels[1].ID)
 	}
-	if channels[2].ID != "agent-1" {
-		t.Fatalf("expected active agent at index 2, got %q", channels[2].ID)
+	if channels[2].Kind != "separator" {
+		t.Fatalf("expected separator at index 2, got %q", channels[2].Kind)
 	}
 	if channels[3].ID != archivedChannelID {
 		t.Fatalf("expected archived header last, got %q", channels[3].ID)
@@ -163,9 +165,12 @@ func TestArchivedAgentsAppearWhenExpanded(t *testing.T) {
 	m.archivedExpanded = true
 
 	channels := m.channels()
-	// Expected: Main, test/main header, agent-1, Archived header, test/main header (archived), agent-3, agent-2
+	// Expected: test/main header, agent-1, separator, Archived header, test/main header (archived), agent-3, agent-2
 	if len(channels) != 7 {
 		t.Fatalf("expected 7 channels, got %d", len(channels))
+	}
+	if channels[2].Kind != "separator" {
+		t.Fatalf("expected separator at index 2, got %q", channels[2].Kind)
 	}
 	if channels[3].ID != archivedChannelID {
 		t.Fatalf("expected archived header at index 3, got %q", channels[3].ID)
@@ -207,7 +212,7 @@ func TestArchivedEnterTogglesExpanded(t *testing.T) {
 	}
 
 	m.cursorIndex = headerIndex
-	_ = m.activateSelection()
+	_ = m.toggleSelection()
 	if !m.archivedExpanded {
 		t.Fatal("expected archived section to expand on enter")
 	}
@@ -215,7 +220,7 @@ func TestArchivedEnterTogglesExpanded(t *testing.T) {
 		t.Fatalf("expected active channel to remain main, got %q", m.activeChannelID)
 	}
 
-	_ = m.activateSelection()
+	_ = m.toggleSelection()
 	if m.archivedExpanded {
 		t.Fatal("expected archived section to collapse on enter")
 	}
@@ -339,7 +344,7 @@ func TestFetchTranscriptsUsesCurrentScope(t *testing.T) {
 	}
 }
 
-func TestFetchAgentsUsesCurrentScope(t *testing.T) {
+func TestFetchAgentsFetchesAllProjects(t *testing.T) {
 	// Create in-memory database with schema
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
@@ -373,7 +378,6 @@ func TestFetchAgentsUsesCurrentScope(t *testing.T) {
 	}
 
 	// Insert agents in the current project/branch scope
-	// Use scope.CurrentContext() to get actual values for the test environment
 	ctx := scope.CurrentContext()
 	currentProject := ctx.Project
 	currentBranch := ctx.Branch
@@ -386,7 +390,7 @@ func TestFetchAgentsUsesCurrentScope(t *testing.T) {
 		t.Fatalf("failed to insert agent-1: %v", err)
 	}
 
-	// Insert agent in different scope - should NOT be returned
+	// Insert agent in different scope - should ALSO be returned (global view)
 	_, err = db.Exec(
 		`INSERT INTO agents (project, branch, name, type, task, status) VALUES (?, ?, ?, ?, ?, ?)`,
 		"other-project", "other-branch", "agent-2", "codex", "task 2", "busy",
@@ -395,7 +399,7 @@ func TestFetchAgentsUsesCurrentScope(t *testing.T) {
 		t.Fatalf("failed to insert agent-2: %v", err)
 	}
 
-	// Call fetchAgentsCmd - it should use scope.CurrentContext()
+	// Call fetchAgentsCmd - it should return ALL agents across all projects
 	cmd := fetchAgentsCmd(db)
 	msg := cmd()
 
@@ -408,18 +412,18 @@ func TestFetchAgentsUsesCurrentScope(t *testing.T) {
 		t.Fatalf("expected agentsMsg, got %T", msg)
 	}
 
-	// Verify we got at least one agent from current scope
-	if len(agentsMsg) == 0 {
-		t.Fatalf("expected at least 1 agent, got 0 - fetchAgentsCmd is not using current scope")
+	// Verify we got agents from ALL projects (global view)
+	if len(agentsMsg) != 2 {
+		t.Errorf("expected 2 agents from all projects, got %d", len(agentsMsg))
 	}
 
-	// Verify we only got agents from the current scope
-	if len(agentsMsg) != 1 {
-		t.Errorf("expected 1 agent from current scope, got %d", len(agentsMsg))
+	// Verify both agents are present
+	names := map[string]bool{}
+	for _, a := range agentsMsg {
+		names[a.Name] = true
 	}
-
-	if agentsMsg[0].Name != "agent-1" {
-		t.Errorf("expected agent name %q, got %q", "agent-1", agentsMsg[0].Name)
+	if !names["agent-1"] || !names["agent-2"] {
+		t.Errorf("expected both agent-1 and agent-2, got %v", names)
 	}
 }
 
@@ -518,41 +522,39 @@ func TestChannelsGroupByProjectBranch(t *testing.T) {
 	channels := m.channels()
 
 	// Expected structure:
-	// 0: Main
-	// 1: app/dev header
-	// 2:   tester (indented)
+	// 0: app/dev header
+	// 1:   tester (indented)
+	// 2: separator
 	// 3: other/feature header
 	// 4:   worker (indented)
-	// 5: otto/main header
-	// 6:   impl-1 (indented)
-	// 7:   reviewer (indented)
+	// 5: separator
+	// 6: otto/main header
+	// 7:   impl-1 (indented)
+	// 8:   reviewer (indented)
 
-	expectedCount := 8
+	expectedCount := 9
 	if len(channels) != expectedCount {
 		t.Fatalf("expected %d channels, got %d", expectedCount, len(channels))
 	}
 
-	// Test Main is first
-	if channels[0].ID != mainChannelID {
-		t.Fatalf("expected Main first, got %q", channels[0].ID)
-	}
-	if channels[0].Kind != "main" {
-		t.Fatalf("expected main kind, got %q", channels[0].Kind)
-	}
-
 	// Test headers are present with correct IDs and kinds
 	// app/dev header
-	if channels[1].ID != "app/dev" {
-		t.Fatalf("expected 'app/dev' header at index 1, got %q", channels[1].ID)
+	if channels[0].ID != "app/dev" {
+		t.Fatalf("expected 'app/dev' header at index 0, got %q", channels[0].ID)
 	}
-	if channels[1].Kind != "project_header" {
-		t.Fatalf("expected 'project_header' kind at index 1, got %q", channels[1].Kind)
+	if channels[0].Kind != "project_header" {
+		t.Fatalf("expected 'project_header' kind at index 0, got %q", channels[0].Kind)
 	}
-	if channels[1].Name != "app/dev" {
-		t.Fatalf("expected 'app/dev' name at index 1, got %q", channels[1].Name)
+	if channels[0].Name != "app/dev" {
+		t.Fatalf("expected 'app/dev' name at index 0, got %q", channels[0].Name)
 	}
-	if channels[1].Level != 0 {
-		t.Fatalf("expected Level 0 for header at index 1, got %d", channels[1].Level)
+	if channels[0].Level != 0 {
+		t.Fatalf("expected Level 0 for header at index 0, got %d", channels[0].Level)
+	}
+
+	// separator at index 2
+	if channels[2].Kind != "separator" {
+		t.Fatalf("expected 'separator' kind at index 2, got %q", channels[2].Kind)
 	}
 
 	// other/feature header
@@ -563,27 +565,32 @@ func TestChannelsGroupByProjectBranch(t *testing.T) {
 		t.Fatalf("expected 'project_header' kind at index 3, got %q", channels[3].Kind)
 	}
 
-	// otto/main header
-	if channels[5].ID != "otto/main" {
-		t.Fatalf("expected 'otto/main' header at index 5, got %q", channels[5].ID)
+	// separator at index 5
+	if channels[5].Kind != "separator" {
+		t.Fatalf("expected 'separator' kind at index 5, got %q", channels[5].Kind)
 	}
-	if channels[5].Kind != "project_header" {
-		t.Fatalf("expected 'project_header' kind at index 5, got %q", channels[5].Kind)
+
+	// otto/main header
+	if channels[6].ID != "otto/main" {
+		t.Fatalf("expected 'otto/main' header at index 6, got %q", channels[6].ID)
+	}
+	if channels[6].Kind != "project_header" {
+		t.Fatalf("expected 'project_header' kind at index 6, got %q", channels[6].Kind)
 	}
 
 	// Test agents under headers have correct Level and properties
 	// tester under app/dev
-	if channels[2].ID != "tester" {
-		t.Fatalf("expected 'tester' at index 2, got %q", channels[2].ID)
+	if channels[1].ID != "tester" {
+		t.Fatalf("expected 'tester' at index 1, got %q", channels[1].ID)
 	}
-	if channels[2].Kind != "agent" {
-		t.Fatalf("expected 'agent' kind at index 2, got %q", channels[2].Kind)
+	if channels[1].Kind != "agent" {
+		t.Fatalf("expected 'agent' kind at index 1, got %q", channels[1].Kind)
 	}
-	if channels[2].Level != 1 {
-		t.Fatalf("expected Level 1 for agent at index 2, got %d", channels[2].Level)
+	if channels[1].Level != 1 {
+		t.Fatalf("expected Level 1 for agent at index 1, got %d", channels[1].Level)
 	}
-	if channels[2].Status != "busy" {
-		t.Fatalf("expected 'busy' status at index 2, got %q", channels[2].Status)
+	if channels[1].Status != "busy" {
+		t.Fatalf("expected 'busy' status at index 1, got %q", channels[1].Status)
 	}
 
 	// worker under other/feature
@@ -595,19 +602,19 @@ func TestChannelsGroupByProjectBranch(t *testing.T) {
 	}
 
 	// impl-1 under otto/main (sorted by status: busy before blocked)
-	if channels[6].ID != "impl-1" {
-		t.Fatalf("expected 'impl-1' at index 6, got %q", channels[6].ID)
-	}
-	if channels[6].Level != 1 {
-		t.Fatalf("expected Level 1 for agent at index 6, got %d", channels[6].Level)
-	}
-
-	// reviewer under otto/main
-	if channels[7].ID != "reviewer" {
-		t.Fatalf("expected 'reviewer' at index 7, got %q", channels[7].ID)
+	if channels[7].ID != "impl-1" {
+		t.Fatalf("expected 'impl-1' at index 7, got %q", channels[7].ID)
 	}
 	if channels[7].Level != 1 {
 		t.Fatalf("expected Level 1 for agent at index 7, got %d", channels[7].Level)
+	}
+
+	// reviewer under otto/main
+	if channels[8].ID != "reviewer" {
+		t.Fatalf("expected 'reviewer' at index 8, got %q", channels[8].ID)
+	}
+	if channels[8].Level != 1 {
+		t.Fatalf("expected Level 1 for agent at index 8, got %d", channels[8].Level)
 	}
 }
 
@@ -629,37 +636,39 @@ func TestChannelsGroupingWithArchived(t *testing.T) {
 	channels := m.channels()
 
 	// Expected structure:
-	// 0: Main
-	// 1: other/feature header
-	// 2:   worker
+	// 0: other/feature header
+	// 1:   worker
+	// 2: separator
 	// 3: otto/main header
 	// 4:   impl-1
-	// 5: Archived (1) header
+	// 5: separator
+	// 6: Archived (1) header
 
-	expectedCount := 6
+	expectedCount := 7
 	if len(channels) != expectedCount {
 		t.Fatalf("expected %d channels, got %d", expectedCount, len(channels))
 	}
 
-	// Verify Main is first
-	if channels[0].ID != mainChannelID {
-		t.Fatalf("expected Main first, got %q", channels[0].ID)
-	}
-
 	// Verify active agents are grouped
-	if channels[1].Kind != "project_header" {
-		t.Fatalf("expected project header at index 1, got %q", channels[1].Kind)
+	if channels[0].Kind != "project_header" {
+		t.Fatalf("expected project header at index 0, got %q", channels[0].Kind)
+	}
+	if channels[2].Kind != "separator" {
+		t.Fatalf("expected separator at index 2, got %q", channels[2].Kind)
 	}
 	if channels[3].Kind != "project_header" {
 		t.Fatalf("expected project header at index 3, got %q", channels[3].Kind)
 	}
+	if channels[5].Kind != "separator" {
+		t.Fatalf("expected separator at index 5, got %q", channels[5].Kind)
+	}
 
 	// Verify archived section is last and NOT grouped
-	if channels[5].ID != archivedChannelID {
-		t.Fatalf("expected archived header last, got %q", channels[5].ID)
+	if channels[6].ID != archivedChannelID {
+		t.Fatalf("expected archived header last, got %q", channels[6].ID)
 	}
-	if channels[5].Kind != "archived_header" {
-		t.Fatalf("expected 'archived_header' kind, got %q", channels[5].Kind)
+	if channels[6].Kind != "archived_header" {
+		t.Fatalf("expected 'archived_header' kind, got %q", channels[6].Kind)
 	}
 }
 
@@ -674,23 +683,19 @@ func TestProjectHeaderCollapseHidesAgents(t *testing.T) {
 	channels := m.channels()
 
 	// Expected structure when collapsed:
-	// 0: Main
-	// 1: otto/main header (collapsed)
+	// 0: otto/main header (collapsed)
 	// No agents shown under header
 
-	expectedCount := 2
+	expectedCount := 1
 	if len(channels) != expectedCount {
-		t.Fatalf("expected %d channels (Main + header only), got %d", expectedCount, len(channels))
+		t.Fatalf("expected %d channels (header only), got %d", expectedCount, len(channels))
 	}
 
-	if channels[0].ID != mainChannelID {
-		t.Fatalf("expected Main first, got %q", channels[0].ID)
+	if channels[0].ID != "otto/main" {
+		t.Fatalf("expected otto/main header at index 0, got %q", channels[0].ID)
 	}
-	if channels[1].ID != "otto/main" {
-		t.Fatalf("expected otto/main header at index 1, got %q", channels[1].ID)
-	}
-	if channels[1].Kind != "project_header" {
-		t.Fatalf("expected project_header kind, got %q", channels[1].Kind)
+	if channels[0].Kind != "project_header" {
+		t.Fatalf("expected project_header kind, got %q", channels[0].Kind)
 	}
 }
 
@@ -705,27 +710,23 @@ func TestProjectHeaderExpandedShowsAgents(t *testing.T) {
 	channels := m.channels()
 
 	// Expected structure when expanded:
-	// 0: Main
-	// 1: otto/main header (expanded)
-	// 2:   impl-1
-	// 3:   reviewer
+	// 0: otto/main header (expanded)
+	// 1:   impl-1
+	// 2:   reviewer
 
-	expectedCount := 4
+	expectedCount := 3
 	if len(channels) != expectedCount {
 		t.Fatalf("expected %d channels, got %d", expectedCount, len(channels))
 	}
 
-	if channels[0].ID != mainChannelID {
-		t.Fatalf("expected Main first, got %q", channels[0].ID)
+	if channels[0].ID != "otto/main" {
+		t.Fatalf("expected otto/main header at index 0, got %q", channels[0].ID)
 	}
-	if channels[1].ID != "otto/main" {
-		t.Fatalf("expected otto/main header at index 1, got %q", channels[1].ID)
+	if channels[1].ID != "impl-1" {
+		t.Fatalf("expected impl-1 at index 1, got %q", channels[1].ID)
 	}
-	if channels[2].ID != "impl-1" {
-		t.Fatalf("expected impl-1 at index 2, got %q", channels[2].ID)
-	}
-	if channels[3].ID != "reviewer" {
-		t.Fatalf("expected reviewer at index 3, got %q", channels[3].ID)
+	if channels[2].ID != "reviewer" {
+		t.Fatalf("expected reviewer at index 2, got %q", channels[2].ID)
 	}
 }
 
@@ -739,17 +740,16 @@ func TestProjectHeaderDefaultExpanded(t *testing.T) {
 	channels := m.channels()
 
 	// Expected structure (default expanded):
-	// 0: Main
-	// 1: otto/main header
-	// 2:   impl-1
+	// 0: otto/main header
+	// 1:   impl-1
 
-	expectedCount := 3
+	expectedCount := 2
 	if len(channels) != expectedCount {
 		t.Fatalf("expected %d channels (default expanded), got %d", expectedCount, len(channels))
 	}
 
-	if channels[2].ID != "impl-1" {
-		t.Fatalf("expected impl-1 agent visible by default, got %q", channels[2].ID)
+	if channels[1].ID != "impl-1" {
+		t.Fatalf("expected impl-1 agent visible by default, got %q", channels[1].ID)
 	}
 }
 
@@ -780,9 +780,9 @@ func TestArchivedSectionGroupsByProjectBranch(t *testing.T) {
 	channels := m.channels()
 
 	// Expected structure:
-	// 0: Main
-	// 1: otto/main header
-	// 2:   active-1
+	// 0: otto/main header
+	// 1:   active-1
+	// 2: separator
 	// 3: Archived (2) header
 	// 4: other/feature header (archived)
 	// 5:   archived-2
@@ -792,6 +792,11 @@ func TestArchivedSectionGroupsByProjectBranch(t *testing.T) {
 	expectedCount := 8
 	if len(channels) != expectedCount {
 		t.Fatalf("expected %d channels, got %d", expectedCount, len(channels))
+	}
+
+	// Verify separator before archived
+	if channels[2].Kind != "separator" {
+		t.Fatalf("expected separator at index 2, got %q", channels[2].Kind)
 	}
 
 	// Verify archived header
@@ -847,7 +852,7 @@ func TestArchivedSectionRespectsProjectCollapse(t *testing.T) {
 	channels := m.channels()
 
 	// Expected structure (archived expanded but otto/main collapsed):
-	// 0: Main
+	// 0: separator
 	// 1: Archived (2) header
 	// 2: otto/main header (collapsed in archived section)
 	// No agents shown under collapsed header
@@ -857,8 +862,8 @@ func TestArchivedSectionRespectsProjectCollapse(t *testing.T) {
 		t.Fatalf("expected %d channels (archived header collapsed), got %d", expectedCount, len(channels))
 	}
 
-	if channels[0].ID != mainChannelID {
-		t.Fatalf("expected Main first, got %q", channels[0].ID)
+	if channels[0].Kind != "separator" {
+		t.Fatalf("expected separator at index 0, got %q", channels[0].Kind)
 	}
 	if channels[1].ID != archivedChannelID {
 		t.Fatalf("expected archived header at index 1, got %q", channels[1].ID)
@@ -929,13 +934,13 @@ func TestProjectHeaderSelectionTogglesExpanded(t *testing.T) {
 
 	// Select the header - should toggle to collapsed
 	m.cursorIndex = headerIndex
-	_ = m.activateSelection()
+	_ = m.toggleSelection()
 	if m.isProjectExpanded("otto/main") {
 		t.Error("expected otto/main to be collapsed after first activation")
 	}
 
 	// Select again - should toggle back to expanded
-	_ = m.activateSelection()
+	_ = m.toggleSelection()
 	if !m.isProjectExpanded("otto/main") {
 		t.Error("expected otto/main to be expanded after second activation")
 	}
@@ -1216,9 +1221,10 @@ func TestProjectHeaderMouseClick(t *testing.T) {
 	// 0: Main
 	// 1: other/feature header
 	// 2:   worker
-	// 3: otto/main header
-	// 4:   impl-1
-	// 5:   reviewer
+	// 3: separator
+	// 4: otto/main header
+	// 5:   impl-1
+	// 6:   reviewer
 
 	// Find the otto/main header index
 	headerIndex := -1
@@ -1232,8 +1238,8 @@ func TestProjectHeaderMouseClick(t *testing.T) {
 		t.Fatal("expected to find otto/main header")
 	}
 
-	// Simulate mouse click on project header
-	// Mouse Y position is index + 2 (accounting for border + title row)
+	// Simulate mouse click on project header with activateSelection
+	// This should just set the activeChannelID, not toggle
 	m.cursorIndex = headerIndex
 	_ = m.activateSelection()
 
@@ -1242,9 +1248,15 @@ func TestProjectHeaderMouseClick(t *testing.T) {
 		t.Errorf("expected activeChannelID to be 'otto/main', got %q", m.activeChannelID)
 	}
 
-	// Should toggle expansion (was expanded by default, now collapsed)
+	// Should NOT toggle expansion on activateSelection (still expanded)
+	if !m.isProjectExpanded("otto/main") {
+		t.Error("expected otto/main to still be expanded after activateSelection")
+	}
+
+	// Use toggleSelection to actually toggle
+	_ = m.toggleSelection()
 	if m.isProjectExpanded("otto/main") {
-		t.Error("expected otto/main to be collapsed after click")
+		t.Error("expected otto/main to be collapsed after toggleSelection")
 	}
 }
 
@@ -1265,9 +1277,9 @@ func TestNavigationSkipsCollapsedAgents(t *testing.T) {
 
 	channels := m.channels()
 	// Expected structure (otto/main collapsed, other/feature expanded):
-	// 0: Main
-	// 1: other/feature header
-	// 2:   worker
+	// 0: other/feature header
+	// 1:   worker
+	// 2: separator
 	// 3: otto/main header (collapsed, agents hidden)
 
 	if len(channels) != 4 {
@@ -1282,25 +1294,20 @@ func TestNavigationSkipsCollapsedAgents(t *testing.T) {
 	}
 
 	// Navigate through the list - should only see visible channels
-	m.cursorIndex = 0 // Main
-	if channels[m.cursorIndex].ID != mainChannelID {
-		t.Errorf("expected cursor at Main, got %q", channels[m.cursorIndex].ID)
-	}
-
-	// Move down - should go to other/feature header (index 1)
-	m.cursorIndex = 1
+	m.cursorIndex = 0 // other/feature header
 	if channels[m.cursorIndex].ID != "other/feature" {
 		t.Errorf("expected cursor at other/feature header, got %q", channels[m.cursorIndex].ID)
 	}
 
-	// Move down - should go to worker (index 2)
-	m.cursorIndex = 2
+	// Move down - should go to worker (index 1)
+	m.cursorIndex = 1
 	if channels[m.cursorIndex].ID != "worker" {
 		t.Errorf("expected cursor at worker, got %q", channels[m.cursorIndex].ID)
 	}
 
-	// Move down - should go to otto/main header (index 3), skipping hidden impl-1 and reviewer
-	m.cursorIndex = 3
+	// Move down - should skip separator (index 2) and go to otto/main header (index 3)
+	m.cursorIndex = 1
+	_ = m.moveCursor(1) // Should skip separator and land on otto/main
 	if channels[m.cursorIndex].ID != "otto/main" {
 		t.Errorf("expected cursor at otto/main header, got %q", channels[m.cursorIndex].ID)
 	}
@@ -1369,10 +1376,10 @@ func TestNavigationRespectsChannelListLength(t *testing.T) {
 	}
 
 	channels := m.channels()
-	// Expected: Main, otto/main header, impl-1 (3 channels)
+	// Expected: otto/main header, impl-1 (2 channels)
 
-	if len(channels) != 3 {
-		t.Fatalf("expected 3 channels, got %d", len(channels))
+	if len(channels) != 2 {
+		t.Fatalf("expected 2 channels, got %d", len(channels))
 	}
 
 	// Start at last channel (impl-1)
