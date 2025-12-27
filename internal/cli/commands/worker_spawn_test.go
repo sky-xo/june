@@ -242,3 +242,95 @@ func TestWorkerSpawnCodexWithoutThreadID(t *testing.T) {
 		t.Fatalf("expected status 'complete', got %q", updatedAgent.Status)
 	}
 }
+
+func TestWorkerCodexSpawnLogsItemStarted(t *testing.T) {
+	db := openTestDB(t)
+	ctx := testCtx()
+
+	// Create Codex agent with placeholder session_id
+	placeholderID := uuid.New().String()
+	agent := repo.Agent{
+		Project:   ctx.Project,
+		Branch:    ctx.Branch,
+		Name:      "test-codex-worker",
+		Type:      "codex",
+		Task:      "test codex task",
+		Status:    "busy",
+		SessionID: sql.NullString{String: placeholderID, Valid: true},
+	}
+	if err := repo.CreateAgent(db, agent); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+
+	// Store prompt message
+	promptMsg := repo.Message{
+		ID:           uuid.New().String(),
+		Project:      ctx.Project,
+		Branch:       ctx.Branch,
+		FromAgent:    "orchestrator",
+		ToAgent:      sql.NullString{String: "test-codex-worker", Valid: true},
+		Type:         "prompt",
+		Content:      "Test codex prompt",
+		MentionsJSON: "[]",
+		ReadByJSON:   "[]",
+	}
+	if err := repo.CreateMessage(db, promptMsg); err != nil {
+		t.Fatalf("create prompt message: %v", err)
+	}
+
+	// Mock runner that simulates Codex JSON output with item.started events
+	chunks := make(chan ottoexec.TranscriptChunk, 5)
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"thread.started","thread_id":"thread_xyz789"}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"item.started","item":{"type":"command_execution","command":"echo hello","text":""}}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"item.completed","item":{"type":"command_execution","command":"echo hello","aggregated_output":"hello","exit_code":0}}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"item.started","item":{"type":"output","text":"Working on task..."}}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"item.completed","item":{"type":"output","text":"Task complete"}}` + "\n"}
+	close(chunks)
+
+	runner := &mockRunner{
+		startWithTranscriptCaptureEnv: func(name string, env []string, args ...string) (int, <-chan ottoexec.TranscriptChunk, func() error, error) {
+			return 8888, chunks, func() error { return nil }, nil
+		},
+	}
+
+	// Run worker spawn for Codex agent
+	err := runWorkerSpawn(db, runner, "test-codex-worker")
+	if err != nil {
+		t.Fatalf("runWorkerSpawn failed: %v", err)
+	}
+
+	// Verify item.started events were logged
+	entries, err := repo.ListLogs(db, ctx.Project, ctx.Branch, "test-codex-worker", "")
+	if err != nil {
+		t.Fatalf("list logs: %v", err)
+	}
+
+	var startedCount int
+	var foundCommandStarted, foundTextStarted bool
+	for _, entry := range entries {
+		if entry.EventType == "item.started" {
+			startedCount++
+			// Verify command was used as content fallback when text is empty
+			if entry.Command.Valid && entry.Command.String == "echo hello" {
+				foundCommandStarted = true
+				if !entry.Content.Valid || entry.Content.String != "echo hello" {
+					t.Errorf("expected content to be 'echo hello' (fallback from command), got %q", entry.Content.String)
+				}
+			}
+			// Verify text is used when available
+			if entry.Content.Valid && entry.Content.String == "Working on task..." {
+				foundTextStarted = true
+			}
+		}
+	}
+
+	if startedCount != 2 {
+		t.Fatalf("expected 2 item.started log entries, got %d", startedCount)
+	}
+	if !foundCommandStarted {
+		t.Fatal("expected to find item.started event with command 'echo hello'")
+	}
+	if !foundTextStarted {
+		t.Fatal("expected to find item.started event with text 'Working on task...'")
+	}
+}

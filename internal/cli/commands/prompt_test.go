@@ -225,3 +225,75 @@ func TestPromptCodexUsesDangerFullAccess(t *testing.T) {
 		t.Fatalf("expected danger-full-access args, got %v", gotArgs)
 	}
 }
+
+func TestCodexPromptLogsItemStarted(t *testing.T) {
+	db := openTestDB(t)
+	ctx := testCtx()
+
+	// Create Codex agent
+	agent := repo.Agent{
+		Project:   ctx.Project,
+		Branch:    ctx.Branch,
+		Name:      "codexer",
+		Type:      "codex",
+		Task:      "task",
+		Status:    "complete",
+		SessionID: sql.NullString{String: "thread-1", Valid: true},
+	}
+	if err := repo.CreateAgent(db, agent); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+
+	// Create mock runner that simulates Codex JSON output with item.started events
+	chunks := make(chan ottoexec.TranscriptChunk, 4)
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"item.started","item":{"type":"command_execution","command":"pwd","text":""}}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"item.completed","item":{"type":"command_execution","command":"pwd","aggregated_output":"/home/user","exit_code":0}}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"item.started","item":{"type":"output","text":"Analyzing results..."}}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"item.completed","item":{"type":"output","text":"Analysis complete"}}` + "\n"}
+	close(chunks)
+
+	runner := &mockRunner{
+		startWithTranscriptCaptureEnv: func(name string, env []string, args ...string) (int, <-chan ottoexec.TranscriptChunk, func() error, error) {
+			return 1234, chunks, func() error { return nil }, nil
+		},
+	}
+
+	if err := runPrompt(db, runner, "codexer", "Continue"); err != nil {
+		t.Fatalf("runPrompt failed: %v", err)
+	}
+
+	// Verify item.started events were logged
+	entries, err := repo.ListLogs(db, ctx.Project, ctx.Branch, "codexer", "")
+	if err != nil {
+		t.Fatalf("list logs: %v", err)
+	}
+
+	var startedCount int
+	var foundCommandStarted, foundTextStarted bool
+	for _, entry := range entries {
+		if entry.EventType == "item.started" {
+			startedCount++
+			// Verify command was used as content fallback when text is empty
+			if entry.Command.Valid && entry.Command.String == "pwd" {
+				foundCommandStarted = true
+				if !entry.Content.Valid || entry.Content.String != "pwd" {
+					t.Errorf("expected content to be 'pwd' (fallback from command), got %q", entry.Content.String)
+				}
+			}
+			// Verify text is used when available
+			if entry.Content.Valid && entry.Content.String == "Analyzing results..." {
+				foundTextStarted = true
+			}
+		}
+	}
+
+	if startedCount != 2 {
+		t.Fatalf("expected 2 item.started log entries, got %d", startedCount)
+	}
+	if !foundCommandStarted {
+		t.Fatal("expected to find item.started event with command 'pwd'")
+	}
+	if !foundTextStarted {
+		t.Fatal("expected to find item.started event with text 'Analyzing results...'")
+	}
+}

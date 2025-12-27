@@ -241,6 +241,23 @@ func runCodexSpawn(db *sql.DB, runner ottoexec.Runner, ctx scope.Context, agentI
 		if event.Type == "turn.failed" {
 			_ = repo.SetAgentFailed(db, ctx.Project, ctx.Branch, agentID)
 		}
+		if event.Type == "item.started" && event.Item != nil {
+			// Use Command as Content fallback to avoid blank transcript lines
+			content := event.Item.Text
+			if content == "" && event.Item.Command != "" {
+				content = event.Item.Command
+			}
+			logEntry := repo.LogEntry{
+				Project:   ctx.Project,
+				Branch:    ctx.Branch,
+				AgentName: agentID,
+				AgentType: "codex",
+				EventType: "item.started",
+				Command:   sql.NullString{String: event.Item.Command, Valid: event.Item.Command != ""},
+				Content:   sql.NullString{String: content, Valid: content != ""},
+			}
+			_ = repo.CreateLogEntry(db, logEntry)
+		}
 		if event.Type == "item.completed" && event.Item != nil {
 			logEntry := repo.LogEntry{
 				Project:   ctx.Project,

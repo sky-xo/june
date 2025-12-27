@@ -706,3 +706,64 @@ func TestSpawnDetachHandlesWorkerLaunchFailure(t *testing.T) {
 		t.Errorf("expected exit message to mention failure, got: %q", msgs[0].Content)
 	}
 }
+
+func TestCodexSpawnLogsItemStarted(t *testing.T) {
+	db := openTestDB(t)
+	ctx := testCtx()
+
+	// Create mock runner that simulates Codex JSON output with item.started events
+	chunks := make(chan ottoexec.TranscriptChunk, 5)
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"thread.started","thread_id":"thread_test123"}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"item.started","item":{"type":"command_execution","command":"ls -la","text":""}}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"item.completed","item":{"type":"command_execution","command":"ls -la","aggregated_output":"total 0","exit_code":0}}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"item.started","item":{"type":"output_text","text":"Processing data..."}}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"item.completed","item":{"type":"output_text","text":"Done!"}}` + "\n"}
+	close(chunks)
+
+	runner := &mockRunner{
+		startWithTranscriptCaptureEnv: func(name string, env []string, args ...string) (int, <-chan ottoexec.TranscriptChunk, func() error, error) {
+			return 5678, chunks, func() error { return nil }, nil
+		},
+	}
+
+	// Run Codex spawn
+	err := runSpawn(db, runner, "codex", "test task", "", "", "")
+	if err != nil {
+		t.Fatalf("runSpawn failed: %v", err)
+	}
+
+	// Verify item.started events were logged
+	entries, err := repo.ListLogs(db, ctx.Project, ctx.Branch, "testtask", "")
+	if err != nil {
+		t.Fatalf("list logs: %v", err)
+	}
+
+	var startedCount int
+	var foundCommandStarted, foundTextStarted bool
+	for _, entry := range entries {
+		if entry.EventType == "item.started" {
+			startedCount++
+			// Verify command was used as content fallback when text is empty
+			if entry.Command.Valid && entry.Command.String == "ls -la" {
+				foundCommandStarted = true
+				if !entry.Content.Valid || entry.Content.String != "ls -la" {
+					t.Errorf("expected content to be 'ls -la' (fallback from command), got %q", entry.Content.String)
+				}
+			}
+			// Verify text is used when available
+			if entry.Content.Valid && entry.Content.String == "Processing data..." {
+				foundTextStarted = true
+			}
+		}
+	}
+
+	if startedCount != 2 {
+		t.Fatalf("expected 2 item.started log entries, got %d", startedCount)
+	}
+	if !foundCommandStarted {
+		t.Fatal("expected to find item.started event with command 'ls -la'")
+	}
+	if !foundTextStarted {
+		t.Fatal("expected to find item.started event with text 'Processing data...'")
+	}
+}
