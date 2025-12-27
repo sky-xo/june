@@ -247,7 +247,7 @@ func runCodexSpawn(db *sql.DB, runner ottoexec.Runner, ctx scope.Context, agentI
 				Branch:    ctx.Branch,
 				AgentName: agentID,
 				AgentType: "codex",
-				EventType: event.Item.Type,
+				EventType: NormalizeCodexItemType(event.Item.Type),
 				Content:   sql.NullString{String: event.Item.Text, Valid: event.Item.Text != ""},
 				RawJSON:   sql.NullString{String: event.Raw, Valid: true},
 				Command:   sql.NullString{String: event.Item.Command, Valid: event.Item.Command != ""},

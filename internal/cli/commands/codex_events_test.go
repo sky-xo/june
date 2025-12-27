@@ -117,3 +117,27 @@ func TestParseCodexEventNonJSON(t *testing.T) {
 		t.Fatalf("expected empty event for non-JSON, got type %q", event.Type)
 	}
 }
+
+func TestNormalizeCodexItemType(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"output", "agent_message"},
+		{"output_text", "agent_message"},
+		{"agent_message", "agent_message"},
+		{"reasoning", "reasoning"},
+		{"command_execution", "command_execution"},
+		{"tool_call", "tool_call"},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := NormalizeCodexItemType(tt.input)
+			if result != tt.expected {
+				t.Errorf("NormalizeCodexItemType(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}

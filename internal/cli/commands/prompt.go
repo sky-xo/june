@@ -70,7 +70,7 @@ func runPrompt(db *sql.DB, runner ottoexec.Runner, agentID, message string) erro
 		cmdArgs = []string{"claude", "--resume", sessionID, "-p", message}
 	} else if agent.Type == "codex" {
 		// Attempt Codex resume (support may be limited)
-		cmdArgs = []string{"codex", "exec", "--skip-git-repo-check", "-s", "danger-full-access", "resume", sessionID, message}
+		cmdArgs = []string{"codex", "exec", "--json", "--skip-git-repo-check", "-s", "danger-full-access", "resume", sessionID, message}
 	} else {
 		return fmt.Errorf("unsupported agent type %q", agent.Type)
 	}
@@ -129,7 +129,33 @@ func runCodexPrompt(db *sql.DB, runner ottoexec.Runner, ctx scope.Context, agent
 
 	_ = repo.UpdateAgentPid(db, ctx.Project, ctx.Branch, agentID, pid)
 
-	transcriptDone := consumeTranscriptEntries(db, ctx, agentID, output, nil)
+	// Parse output stream for Codex events (same as spawn)
+	onEvent := func(event CodexEvent) {
+		if event.Type == "item.completed" && event.Item != nil {
+			logEntry := repo.LogEntry{
+				Project:   ctx.Project,
+				Branch:    ctx.Branch,
+				AgentName: agentID,
+				AgentType: "codex",
+				EventType: NormalizeCodexItemType(event.Item.Type),
+				Content:   sql.NullString{String: event.Item.Text, Valid: event.Item.Text != ""},
+				RawJSON:   sql.NullString{String: event.Raw, Valid: true},
+				Command:   sql.NullString{String: event.Item.Command, Valid: event.Item.Command != ""},
+			}
+			if event.Item.Type == "command_execution" {
+				logEntry.Content = sql.NullString{String: event.Item.AggregatedOutput, Valid: true}
+				if event.Item.ExitCode != nil {
+					logEntry.ExitCode = sql.NullInt64{Int64: int64(*event.Item.ExitCode), Valid: true}
+				}
+			}
+			if event.Item.Status != "" {
+				logEntry.Status = sql.NullString{String: event.Item.Status, Valid: true}
+			}
+			_ = repo.CreateLogEntry(db, logEntry)
+		}
+	}
+
+	transcriptDone := consumeTranscriptEntries(db, ctx, agentID, output, onEvent)
 
 	err = wait()
 	if err != nil {

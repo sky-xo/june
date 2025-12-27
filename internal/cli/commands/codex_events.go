@@ -31,3 +31,14 @@ func ParseCodexEvent(line string) CodexEvent {
 	payload.Raw = line
 	return payload
 }
+
+// NormalizeCodexItemType maps Codex item types to normalized event types.
+// This ensures output/output_text items are stored as agent_message for TUI display.
+func NormalizeCodexItemType(itemType string) string {
+	switch itemType {
+	case "output", "output_text":
+		return "agent_message"
+	default:
+		return itemType
+	}
+}
