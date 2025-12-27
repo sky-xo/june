@@ -1,82 +1,43 @@
 # Otto Roadmap
 
-Quick overview of features and status. For detailed design, see `docs/plans/`.
-
-## Implementation Status
-
-Based on `docs/plans/2025-12-25-super-orchestrator-v0-design.md`.
-
-### Backend (Phase 1) - COMPLETE
-
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Global DB at `~/.otto/otto.db` | ✅ Done | |
-| Project/branch-aware schema | ✅ Done | agents, messages, logs, tasks tables |
-| Scope context helper | ✅ Done | `scope.CurrentContext()` |
-| @mention parsing | ✅ Done | Resolves to `project:branch:agent` |
-| Codex event parsing | ✅ Done | `codex_events.go` |
-| Compaction detection | ✅ Done | Parses `context_compacted` event |
-| Session ID capture | ✅ Done | From `thread.started` event |
-| Structured log entries | ✅ Done | event_type, command, exit_code, etc. |
-| Tasks table | ✅ Done | Schema exists, repo functions work |
-| Git worktree support | ✅ Done | `RepoRoot()` uses `--git-common-dir` for main repo |
-
-### TUI (Phase 2) - COMPLETE
-
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Agent list with status indicators | ✅ Done | busy/complete/failed/waiting |
-| Archived agents section | ✅ Done | Collapsible |
-| Transcript view | ✅ Done | Formatting for reasoning, commands, input |
-| Mouse support | ✅ Done | Click to select, scroll wheel |
-| Keyboard navigation | ✅ Done | j/k/up/down move cursor; Enter/h/l toggle/expand/collapse |
-| **Project/branch grouping** | ✅ Done | Sidebar groups agents by project:branch with headers |
-| **Global agent view** | ✅ Done | TUI shows ALL agents across all projects |
-| **Separators between groups** | ✅ Done | Visual separation between project groups |
-| **Chat panel** | ✅ Done | Bottom panel for orchestrator chat with @otto |
-
-### Daemon/Wake-ups - NOT STARTED
-
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Auto-wake on @mention | ❌ Not done | `wakeup.go` has helpers, not wired in |
-| Auto-wake on agent exit | ❌ Not done | Should notify orchestrator |
-| Context injection | ❌ Not done | `buildContextBundle` exists, unused |
-| Skill re-injection after compaction | ❌ Not done | Design specifies this |
-
-### CLI Commands - COMPLETE
-
-All commands working: `spawn`, `status`, `peek`, `log`, `prompt`, `say`, `ask`, `complete`, `kill`, `interrupt`, `archive`, `messages`, `attach`, `install-skills`.
+What's next. For detailed design, see `docs/plans/`.
 
 ---
 
-## Session Notes (2025-12-27)
+## Up Next (Implementation Order)
 
-### Just Completed
-- **TUI global view**: Shows all agents across all projects (not just current git context)
-- **Navigation UX fix**: Up/down just moves cursor, Enter/left/right toggles expand/collapse
-- **Removed "Main" channel**: Redundant now that each project header acts as orchestrator entry point
-- **Added separators**: Empty lines between project groups for visual clarity
-- **Git worktree fix**: `RepoRoot()` now correctly returns main repo root for worktrees
+### 1. Codex Event Logging
 
-### Commits (unpushed)
-```
-383e0ba feat(tui): show all projects globally, improve navigation
-3959084 fix(scope): handle git worktrees correctly in RepoRoot()
-```
+**Why:** Give Claude visibility into what Codex agents are doing in real-time.
 
----
+**Design:** `docs/plans/2025-12-27-codex-event-logging-plan.md` (Ready)
 
-## Remaining Work (Priority Order)
+**Scope:**
+- Log `item.started` events (not just `item.completed`)
+- Log `turn.started` / `turn.completed` events
+- Update `otto peek` to format these nicely
 
-### P2: Agent Chat in TUI
+### 2. Unified Chat Stream
 
-**Why:** P1 covers orchestrator chat. This adds chat with individual agents.
+**Why:** Fix keyboard shortcuts capturing keys in chat input. Simplify right panel to Slack-style chat.
+
+**Design:** `docs/plans/2025-12-27-unified-chat-stream-design.md` (Ready)
+
+**Scope:**
+- Three-focus keyboard model (agents, stream, chat input)
+- Store user messages as `chat` type
+- Render messages Slack-style (name on own line, body below)
+- Hide noise (exit events, redundant spawn messages)
+
+### 3. Agent Chat in TUI
+
+**Why:** Currently only orchestrator chat works. This adds chat with individual agents.
 
 **Scope:**
 - When agent selected: show input, send via `otto prompt <agent>`
+- Builds on unified chat stream's keyboard model
 
-### P3: Daemon Wake-ups (Superorchestrator Core)
+### 4. Daemon Wake-ups (Superorchestrator Core)
 
 **Why:** This is what makes Otto an orchestrator vs just a spawner.
 
@@ -86,40 +47,53 @@ All commands working: `spawn`, `status`, `peek`, `log`, `prompt`, `say`, `ask`, 
 - On agent exit: notify orchestrator
 - After compaction: re-inject skills
 
-### P4: Activity Feed + Chat Split
-
-**Why:** Design shows two-panel right side (feed top, chat bottom). Polish after core works.
-
-**Scope:**
-- Split right panel into top (activity) and bottom (chat)
-- Activity: status changes, completions, agent spawns
-- Chat: messages mentioning @otto, user input
-
-### P5: File Diffs in Agent Transcripts
+### 5. File Diffs in Agent Transcripts
 
 **Why:** TUI transcript shows file changes but not the actual diffs.
 
 **Design:** `docs/plans/2025-12-27-agent-diff-capture-design.md` (DRAFT)
 
-**Research (2025-12-27):**
+**Research:**
 - `codex app-server` provides `turn/diff/updated` events with unified diffs
 - JSON-RPC over stdio, experimental but used by VS Code extension
-- Uses same OAuth as `exec`
-- Consider for richer diff capture vs git-based approach
 
-### P6: Transcript Replace-on-Complete
+### 6. Transcript Replace-on-Complete
 
-**Why:** Transcript view is noisy - shows every thinking step and command as permanent entries. Should show live status that collapses when turn completes.
+**Why:** Transcript view is noisy - shows every thinking step and command as permanent entries.
 
 **Design:** `docs/plans/2025-12-28-tui-replace-on-complete-design.md` (DRAFT)
 
 **Key ideas:**
 - Ephemeral status (thinking + command) replaces in-place during turn
 - Collapses when turn completes, leaving only durable output
-- Spinner animation for liveness
-- Shimmer effect: brightness wave through text every ~4s
-- Failed commands persist for debugging
-- `otto say` messages are durable (not ephemeral)
+- Spinner + shimmer animation for liveness
+
+---
+
+## Backlog (Deferred Items)
+
+Issues identified during implementation, deferred for future work.
+
+### From TUI Project Grouping (`docs/plans/2025-12-27-tui-project-grouping-plan.md`)
+
+| # | Issue | Impact | Fix |
+|---|-------|--------|-----|
+| 1 | Global message state when switching projects | `m.messages` and `m.lastMessageID` are global but fetch scope changes per project header. Switching projects may show stale messages. | Scope message lists per `project/branch`, or reset when selecting different project header |
+| 2 | `isProjectHeader()` misclassifies agent names with `/` | Any channel ID containing `/` is treated as project header. Agent names with `/` would route to orchestrator chat. | Check against actual channel list or use explicit `Kind` field |
+| 3 | Unicode width uses `len()` not display width | `▼`/`▶` are multibyte but display as single char. Width calculations may cause visual misalignment. | Use `lipgloss.Width()` or `runewidth` for sizing |
+
+### From Unified Chat Stream (`docs/plans/2025-12-27-unified-chat-stream-design.md`)
+
+| # | Issue | Impact | Fix |
+|---|-------|--------|-----|
+| 4 | Spawn failure visibility | If spawn fails after storing `chat` message, user sees their message but no error. | Show error line in stream: `⚠ Failed to start otto: ...` |
+| 5 | Two-phase completion ("finishing" status) | Agent calls `otto complete` but process continues outputting 10-30s more. Status shows "complete" while still talking. | Add `finishing` status: busy→finishing→complete. Visual: ● gray filled. |
+
+### From Codex Event Logging (`docs/plans/2025-12-27-codex-event-logging-plan.md`)
+
+| # | Issue | Impact | Fix |
+|---|-------|--------|-----|
+| 6 | TUI shows both `item.started` and `item.completed` | Verbose transcript - shows pending line then result line for same action. | Replace-on-complete: group by `item.id`, only show completed when both exist, show ⏳ indicator while running. |
 
 ---
 
@@ -131,14 +105,16 @@ All commands working: `spawn`, `status`, `peek`, `log`, `prompt`, `say`, `ask`, 
 - Headless mode (`otto --headless`)
 - Cross-project coordination patterns
 
+---
+
 ## Docs
 
-**Design (current):**
+**Design:**
 - `docs/plans/2025-12-25-super-orchestrator-v0-design.md` - Main design doc
-- `docs/plans/2025-12-27-tui-project-grouping-plan.md` - P1 implementation (COMPLETE)
-- `docs/plans/2025-12-27-agent-diff-capture-design.md` - Capturing file diffs (DRAFT)
-- `docs/plans/2025-12-27-unified-chat-stream-design.md` - Unified chat stream for main view (Ready)
-- `docs/plans/2025-12-28-tui-replace-on-complete-design.md` - Transcript replace-on-complete (DRAFT)
+- `docs/plans/2025-12-27-codex-event-logging-plan.md` - Codex event logging (Ready)
+- `docs/plans/2025-12-27-unified-chat-stream-design.md` - Unified chat stream (Ready)
+- `docs/plans/2025-12-27-agent-diff-capture-design.md` - File diffs (DRAFT)
+- `docs/plans/2025-12-28-tui-replace-on-complete-design.md` - Replace-on-complete (DRAFT)
 
 **Reference:**
 - `docs/ARCHITECTURE.md` - How Otto works
