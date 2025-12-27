@@ -84,19 +84,24 @@ func TestChannelOrdering(t *testing.T) {
 func TestChannelsIncludeMainFirst(t *testing.T) {
 	m := NewModel(nil)
 	m.agents = []repo.Agent{
-		{Name: "agent-2", Status: "complete"},
-		{Name: "agent-1", Status: "busy"},
+		{Project: "test", Branch: "main", Name: "agent-2", Status: "complete"},
+		{Project: "test", Branch: "main", Name: "agent-1", Status: "busy"},
 	}
 
 	channels := m.channels()
-	if len(channels) != 3 {
-		t.Fatalf("expected 3 channels, got %d", len(channels))
+	// Expected: Main, test/main header, agent-1 (busy first), agent-2
+	if len(channels) != 4 {
+		t.Fatalf("expected 4 channels, got %d", len(channels))
 	}
 	if channels[0].ID != mainChannelID {
 		t.Fatalf("expected main channel first, got %q", channels[0].ID)
 	}
-	if channels[1].ID != "agent-1" || channels[2].ID != "agent-2" {
-		t.Fatalf("unexpected channel order: %q, %q", channels[1].ID, channels[2].ID)
+	if channels[1].Kind != "project_header" {
+		t.Fatalf("expected project_header at index 1, got %q", channels[1].Kind)
+	}
+	// Agents should be sorted by status: busy before complete
+	if channels[2].ID != "agent-1" || channels[3].ID != "agent-2" {
+		t.Fatalf("unexpected agent order: %q, %q", channels[2].ID, channels[3].ID)
 	}
 }
 
@@ -104,8 +109,10 @@ func TestArchivedAgentsHiddenByDefault(t *testing.T) {
 	m := NewModel(nil)
 	archivedAt := time.Now().Add(-time.Hour)
 	m.agents = []repo.Agent{
-		{Name: "agent-1", Status: "busy"},
+		{Project: "test", Branch: "main", Name: "agent-1", Status: "busy"},
 		{
+			Project:    "test",
+			Branch:     "main",
 			Name:       "agent-2",
 			Status:     "complete",
 			ArchivedAt: sql.NullTime{Time: archivedAt, Valid: true},
@@ -113,17 +120,21 @@ func TestArchivedAgentsHiddenByDefault(t *testing.T) {
 	}
 
 	channels := m.channels()
-	if len(channels) != 3 {
-		t.Fatalf("expected 3 channels, got %d", len(channels))
+	// Expected: Main, test/main header, agent-1, Archived header
+	if len(channels) != 4 {
+		t.Fatalf("expected 4 channels, got %d", len(channels))
 	}
 	if channels[0].ID != mainChannelID {
 		t.Fatalf("expected main channel first, got %q", channels[0].ID)
 	}
-	if channels[1].ID != "agent-1" {
-		t.Fatalf("expected active agent second, got %q", channels[1].ID)
+	if channels[1].Kind != "project_header" {
+		t.Fatalf("expected project_header at index 1, got %q", channels[1].Kind)
 	}
-	if channels[2].ID != archivedChannelID {
-		t.Fatalf("expected archived header last, got %q", channels[2].ID)
+	if channels[2].ID != "agent-1" {
+		t.Fatalf("expected active agent at index 2, got %q", channels[2].ID)
+	}
+	if channels[3].ID != archivedChannelID {
+		t.Fatalf("expected archived header last, got %q", channels[3].ID)
 	}
 }
 
@@ -132,13 +143,17 @@ func TestArchivedAgentsAppearWhenExpanded(t *testing.T) {
 	older := time.Now().Add(-2 * time.Hour)
 	newer := time.Now().Add(-1 * time.Hour)
 	m.agents = []repo.Agent{
-		{Name: "agent-1", Status: "busy"},
+		{Project: "test", Branch: "main", Name: "agent-1", Status: "busy"},
 		{
+			Project:    "test",
+			Branch:     "main",
 			Name:       "agent-2",
 			Status:     "complete",
 			ArchivedAt: sql.NullTime{Time: older, Valid: true},
 		},
 		{
+			Project:    "test",
+			Branch:     "main",
 			Name:       "agent-3",
 			Status:     "failed",
 			ArchivedAt: sql.NullTime{Time: newer, Valid: true},
@@ -147,17 +162,18 @@ func TestArchivedAgentsAppearWhenExpanded(t *testing.T) {
 	m.archivedExpanded = true
 
 	channels := m.channels()
-	if len(channels) != 5 {
-		t.Fatalf("expected 5 channels, got %d", len(channels))
+	// Expected: Main, test/main header, agent-1, Archived header, agent-3, agent-2
+	if len(channels) != 6 {
+		t.Fatalf("expected 6 channels, got %d", len(channels))
 	}
-	if channels[2].ID != archivedChannelID {
-		t.Fatalf("expected archived header at index 2, got %q", channels[2].ID)
+	if channels[3].ID != archivedChannelID {
+		t.Fatalf("expected archived header at index 3, got %q", channels[3].ID)
 	}
-	if channels[2].Name != "Archived (2)" {
-		t.Fatalf("expected archived header label, got %q", channels[2].Name)
+	if channels[3].Name != "Archived (2)" {
+		t.Fatalf("expected archived header label, got %q", channels[3].Name)
 	}
-	if channels[3].ID != "agent-3" || channels[4].ID != "agent-2" {
-		t.Fatalf("unexpected archived order: %q, %q", channels[3].ID, channels[4].ID)
+	if channels[4].ID != "agent-3" || channels[5].ID != "agent-2" {
+		t.Fatalf("unexpected archived order: %q, %q", channels[4].ID, channels[5].ID)
 	}
 }
 
@@ -482,5 +498,162 @@ func TestFetchMessagesUsesCurrentScope(t *testing.T) {
 	}
 	if messagesMsg[0].Content != "message in current scope" {
 		t.Errorf("expected content %q, got %q", "message in current scope", messagesMsg[0].Content)
+	}
+}
+
+func TestChannelsGroupByProjectBranch(t *testing.T) {
+	m := NewModel(nil)
+	m.agents = []repo.Agent{
+		{Project: "otto", Branch: "main", Name: "impl-1", Status: "busy"},
+		{Project: "otto", Branch: "main", Name: "reviewer", Status: "blocked"},
+		{Project: "other", Branch: "feature", Name: "worker", Status: "complete"},
+		{Project: "app", Branch: "dev", Name: "tester", Status: "busy"},
+	}
+
+	channels := m.channels()
+
+	// Expected structure:
+	// 0: Main
+	// 1: app/dev header
+	// 2:   tester (indented)
+	// 3: other/feature header
+	// 4:   worker (indented)
+	// 5: otto/main header
+	// 6:   impl-1 (indented)
+	// 7:   reviewer (indented)
+
+	expectedCount := 8
+	if len(channels) != expectedCount {
+		t.Fatalf("expected %d channels, got %d", expectedCount, len(channels))
+	}
+
+	// Test Main is first
+	if channels[0].ID != mainChannelID {
+		t.Fatalf("expected Main first, got %q", channels[0].ID)
+	}
+	if channels[0].Kind != "main" {
+		t.Fatalf("expected main kind, got %q", channels[0].Kind)
+	}
+
+	// Test headers are present with correct IDs and kinds
+	// app/dev header
+	if channels[1].ID != "app/dev" {
+		t.Fatalf("expected 'app/dev' header at index 1, got %q", channels[1].ID)
+	}
+	if channels[1].Kind != "project_header" {
+		t.Fatalf("expected 'project_header' kind at index 1, got %q", channels[1].Kind)
+	}
+	if channels[1].Name != "app/dev" {
+		t.Fatalf("expected 'app/dev' name at index 1, got %q", channels[1].Name)
+	}
+	if channels[1].Level != 0 {
+		t.Fatalf("expected Level 0 for header at index 1, got %d", channels[1].Level)
+	}
+
+	// other/feature header
+	if channels[3].ID != "other/feature" {
+		t.Fatalf("expected 'other/feature' header at index 3, got %q", channels[3].ID)
+	}
+	if channels[3].Kind != "project_header" {
+		t.Fatalf("expected 'project_header' kind at index 3, got %q", channels[3].Kind)
+	}
+
+	// otto/main header
+	if channels[5].ID != "otto/main" {
+		t.Fatalf("expected 'otto/main' header at index 5, got %q", channels[5].ID)
+	}
+	if channels[5].Kind != "project_header" {
+		t.Fatalf("expected 'project_header' kind at index 5, got %q", channels[5].Kind)
+	}
+
+	// Test agents under headers have correct Level and properties
+	// tester under app/dev
+	if channels[2].ID != "tester" {
+		t.Fatalf("expected 'tester' at index 2, got %q", channels[2].ID)
+	}
+	if channels[2].Kind != "agent" {
+		t.Fatalf("expected 'agent' kind at index 2, got %q", channels[2].Kind)
+	}
+	if channels[2].Level != 1 {
+		t.Fatalf("expected Level 1 for agent at index 2, got %d", channels[2].Level)
+	}
+	if channels[2].Status != "busy" {
+		t.Fatalf("expected 'busy' status at index 2, got %q", channels[2].Status)
+	}
+
+	// worker under other/feature
+	if channels[4].ID != "worker" {
+		t.Fatalf("expected 'worker' at index 4, got %q", channels[4].ID)
+	}
+	if channels[4].Level != 1 {
+		t.Fatalf("expected Level 1 for agent at index 4, got %d", channels[4].Level)
+	}
+
+	// impl-1 under otto/main (sorted by status: busy before blocked)
+	if channels[6].ID != "impl-1" {
+		t.Fatalf("expected 'impl-1' at index 6, got %q", channels[6].ID)
+	}
+	if channels[6].Level != 1 {
+		t.Fatalf("expected Level 1 for agent at index 6, got %d", channels[6].Level)
+	}
+
+	// reviewer under otto/main
+	if channels[7].ID != "reviewer" {
+		t.Fatalf("expected 'reviewer' at index 7, got %q", channels[7].ID)
+	}
+	if channels[7].Level != 1 {
+		t.Fatalf("expected Level 1 for agent at index 7, got %d", channels[7].Level)
+	}
+}
+
+func TestChannelsGroupingWithArchived(t *testing.T) {
+	m := NewModel(nil)
+	archivedAt := time.Now().Add(-time.Hour)
+	m.agents = []repo.Agent{
+		{Project: "otto", Branch: "main", Name: "impl-1", Status: "busy"},
+		{Project: "other", Branch: "feature", Name: "worker", Status: "complete"},
+		{
+			Project:    "otto",
+			Branch:     "main",
+			Name:       "old-agent",
+			Status:     "complete",
+			ArchivedAt: sql.NullTime{Time: archivedAt, Valid: true},
+		},
+	}
+
+	channels := m.channels()
+
+	// Expected structure:
+	// 0: Main
+	// 1: other/feature header
+	// 2:   worker
+	// 3: otto/main header
+	// 4:   impl-1
+	// 5: Archived (1) header
+
+	expectedCount := 6
+	if len(channels) != expectedCount {
+		t.Fatalf("expected %d channels, got %d", expectedCount, len(channels))
+	}
+
+	// Verify Main is first
+	if channels[0].ID != mainChannelID {
+		t.Fatalf("expected Main first, got %q", channels[0].ID)
+	}
+
+	// Verify active agents are grouped
+	if channels[1].Kind != "project_header" {
+		t.Fatalf("expected project header at index 1, got %q", channels[1].Kind)
+	}
+	if channels[3].Kind != "project_header" {
+		t.Fatalf("expected project header at index 3, got %q", channels[3].Kind)
+	}
+
+	// Verify archived section is last and NOT grouped
+	if channels[5].ID != archivedChannelID {
+		t.Fatalf("expected archived header last, got %q", channels[5].ID)
+	}
+	if channels[5].Kind != "archived_header" {
+		t.Fatalf("expected 'archived_header' kind, got %q", channels[5].Kind)
 	}
 }

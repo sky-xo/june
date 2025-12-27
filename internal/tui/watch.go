@@ -101,10 +101,13 @@ type transcriptsMsg struct {
 }
 
 type channel struct {
-	ID     string
-	Name   string
-	Kind   string
-	Status string
+	ID      string
+	Name    string
+	Kind    string
+	Status  string
+	Level   int
+	Project string
+	Branch  string
 }
 
 type model struct {
@@ -516,16 +519,47 @@ func (m model) channels() []channel {
 		}
 	}
 
-	ordered := sortAgentsByStatus(activeAgents)
-	for _, agent := range ordered {
-		channels = append(channels, channel{
-			ID:     agent.Name,
-			Name:   agent.Name,
-			Kind:   "agent",
-			Status: agent.Status,
-		})
+	// Group active agents by project/branch
+	groupedAgents := make(map[string][]repo.Agent)
+	for _, agent := range activeAgents {
+		key := agent.Project + "/" + agent.Branch
+		groupedAgents[key] = append(groupedAgents[key], agent)
 	}
 
+	// Sort group keys alphabetically
+	var groupKeys []string
+	for key := range groupedAgents {
+		groupKeys = append(groupKeys, key)
+	}
+	sort.Strings(groupKeys)
+
+	// Build channels with headers and grouped agents
+	for _, key := range groupKeys {
+		// Add project/branch header
+		channels = append(channels, channel{
+			ID:   key,
+			Name: key,
+			Kind: "project_header",
+			Level: 0,
+		})
+
+		// Add agents under this header
+		agents := groupedAgents[key]
+		ordered := sortAgentsByStatus(agents)
+		for _, agent := range ordered {
+			channels = append(channels, channel{
+				ID:      agent.Name,
+				Name:    agent.Name,
+				Kind:    "agent",
+				Status:  agent.Status,
+				Level:   1,
+				Project: agent.Project,
+				Branch:  agent.Branch,
+			})
+		}
+	}
+
+	// Archived section remains at the bottom, not grouped
 	if len(archivedAgents) > 0 {
 		channels = append(channels, channel{
 			ID:   archivedChannelID,
@@ -561,10 +595,18 @@ func (m model) renderChannelLine(ch channel, width int, cursor, active bool) str
 		bgStyle = bgStyle.Background(lipgloss.Color("8"))
 	}
 
+	// Calculate indentation based on Level
+	indent := strings.Repeat(" ", ch.Level*2)
+	indentWidth := len(indent)
+	availableWidth := width - indentWidth
+	if availableWidth < 1 {
+		availableWidth = 1
+	}
+
 	label := ch.Name
-	labelWidth := width
-	if ch.Kind != "main" && ch.Kind != "archived_header" {
-		labelWidth = width - 2 // Account for "● " prefix
+	labelWidth := availableWidth
+	if ch.Kind == "agent" {
+		labelWidth = availableWidth - 2 // Account for "● " prefix
 		if labelWidth < 1 {
 			labelWidth = 1
 		}
@@ -576,34 +618,34 @@ func (m model) renderChannelLine(ch channel, width int, cursor, active bool) str
 	if active {
 		labelStyle = channelActiveStyle
 	}
-	if ch.Kind == "archived_header" {
+	if ch.Kind == "archived_header" || ch.Kind == "project_header" {
 		labelStyle = mutedStyle
 	}
 
 	// For agents, render indicator separately to preserve its color
-	if ch.Kind != "main" && ch.Kind != "archived_header" {
+	if ch.Kind == "agent" {
 		indicator, indicatorStyle := channelIndicator(ch)
 		// Indicator keeps its foreground color always
 		styledIndicator := indicatorStyle.Render(indicator)
 		// Label gets background if cursor, keeps its style
 		styledLabel := bgStyle.Inherit(labelStyle).Render(label)
 		// Pad the remaining space with background
-		usedWidth := 2 + len(label) // "● " + label
+		usedWidth := indentWidth + 2 + len(label) // indent + "● " + label
 		padding := ""
 		if usedWidth < width {
 			padding = bgStyle.Render(strings.Repeat(" ", width-usedWidth))
 		}
-		return styledIndicator + " " + styledLabel + padding
+		return indent + styledIndicator + " " + styledLabel + padding
 	}
 
-	// For main and archived_header, apply background to entire line
+	// For main, project_header, and archived_header, apply background to entire line
 	styledLabel := bgStyle.Inherit(labelStyle).Render(label)
-	usedWidth := len(label)
+	usedWidth := indentWidth + len(label)
 	padding := ""
 	if usedWidth < width {
 		padding = bgStyle.Render(strings.Repeat(" ", width-usedWidth))
 	}
-	return styledLabel + padding
+	return indent + styledLabel + padding
 }
 
 func (m *model) moveCursor(delta int) tea.Cmd {
