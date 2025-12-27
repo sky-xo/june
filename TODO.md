@@ -12,17 +12,25 @@ Completed - see commits `727ef67`, `00d4d8e`, etc.
 
 ### 2. Unified Chat Stream ⬅️ IN PROGRESS
 
-**Status:** Design complete, implementation plan ready
+**Status:** Phase 1 in progress
 
-**Next Action:** Implement Phase 1 (Two-Focus Keyboard Model) using subagent-driven development
+**Progress:**
+- ✅ Task 1.1: Right panel sends all keys to chat input (commit `ea21dd7`, spec review passed)
+- ⬅️ Task 1.2: Esc/Tab from right panel returns to sidebar (NEXT)
+- Task 1.3: Remove keyboard scrolling from right panel
 
 **Implementation Plan:** `docs/plans/2025-12-27-unified-chat-stream-design.md` - has detailed TDD tasks
 
 **Phases:**
-- Phase 1: Two-focus keyboard model (3 tasks) ← START HERE
+- Phase 1: Two-focus keyboard model (3 tasks) ← IN PROGRESS
 - Phase 2: User message storage (2 tasks)
 - Phase 3: Message rendering (Slack-style)
 - Phase 4: Polish
+
+**IMPORTANT - Anti-pattern discovered:**
+When using `otto spawn codex`, do NOT use BashOutput to poll for completion.
+Use `otto peek <agent>` instead - it's cursor-based (no repeats) and parses the JSON.
+See `.claude/skills/otto-orchestrate/SKILL.md` for the proper pattern.
 
 ### 3. Agent Chat in TUI
 
