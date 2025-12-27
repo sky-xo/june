@@ -767,3 +767,58 @@ func TestCodexSpawnLogsItemStarted(t *testing.T) {
 		t.Fatal("expected to find item.started event with text 'Processing data...'")
 	}
 }
+
+func TestCodexSpawnLogsTurnEvents(t *testing.T) {
+	db := openTestDB(t)
+	ctx := testCtx()
+
+	// Create mock runner that simulates Codex JSON output with turn events
+	chunks := make(chan ottoexec.TranscriptChunk, 5)
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"thread.started","thread_id":"thread_turn123"}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"turn.started"}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"item.started","item":{"type":"output_text","text":"Thinking..."}}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"item.completed","item":{"type":"output_text","text":"Done thinking"}}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"turn.completed"}` + "\n"}
+	close(chunks)
+
+	runner := &mockRunner{
+		startWithTranscriptCaptureEnv: func(name string, env []string, args ...string) (int, <-chan ottoexec.TranscriptChunk, func() error, error) {
+			return 5678, chunks, func() error { return nil }, nil
+		},
+	}
+
+	// Run Codex spawn
+	err := runSpawn(db, runner, "codex", "test turn events", "", "", "")
+	if err != nil {
+		t.Fatalf("runSpawn failed: %v", err)
+	}
+
+	// Verify turn events were logged
+	entries, err := repo.ListLogs(db, ctx.Project, ctx.Branch, "testturnevents", "")
+	if err != nil {
+		t.Fatalf("list logs: %v", err)
+	}
+
+	var turnStartedCount, turnCompletedCount int
+	for _, entry := range entries {
+		if entry.EventType == "turn.started" {
+			turnStartedCount++
+			if entry.AgentType != "codex" {
+				t.Errorf("expected agent_type 'codex', got %q", entry.AgentType)
+			}
+		}
+		if entry.EventType == "turn.completed" {
+			turnCompletedCount++
+			if entry.AgentType != "codex" {
+				t.Errorf("expected agent_type 'codex', got %q", entry.AgentType)
+			}
+		}
+	}
+
+	if turnStartedCount != 1 {
+		t.Fatalf("expected 1 turn.started log entry, got %d", turnStartedCount)
+	}
+	if turnCompletedCount != 1 {
+		t.Fatalf("expected 1 turn.completed log entry, got %d", turnCompletedCount)
+	}
+}

@@ -131,6 +131,16 @@ func runCodexPrompt(db *sql.DB, runner ottoexec.Runner, ctx scope.Context, agent
 
 	// Parse output stream for Codex events (same as spawn)
 	onEvent := func(event CodexEvent) {
+		if event.Type == "turn.started" || event.Type == "turn.completed" {
+			logEntry := repo.LogEntry{
+				Project:   ctx.Project,
+				Branch:    ctx.Branch,
+				AgentName: agentID,
+				AgentType: "codex",
+				EventType: event.Type,
+			}
+			_ = repo.CreateLogEntry(db, logEntry)
+		}
 		if event.Type == "item.started" && event.Item != nil {
 			// Use Command as Content fallback to avoid blank transcript lines
 			content := event.Item.Text

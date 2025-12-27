@@ -334,3 +334,89 @@ func TestWorkerCodexSpawnLogsItemStarted(t *testing.T) {
 		t.Fatal("expected to find item.started event with text 'Working on task...'")
 	}
 }
+
+func TestWorkerCodexSpawnLogsTurnEvents(t *testing.T) {
+	db := openTestDB(t)
+	ctx := testCtx()
+
+	// Create Codex agent with placeholder session_id
+	placeholderID := uuid.New().String()
+	agent := repo.Agent{
+		Project:   ctx.Project,
+		Branch:    ctx.Branch,
+		Name:      "test-codex-worker-turn",
+		Type:      "codex",
+		Task:      "test codex turn events",
+		Status:    "busy",
+		SessionID: sql.NullString{String: placeholderID, Valid: true},
+	}
+	if err := repo.CreateAgent(db, agent); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+
+	// Store prompt message
+	promptMsg := repo.Message{
+		ID:           uuid.New().String(),
+		Project:      ctx.Project,
+		Branch:       ctx.Branch,
+		FromAgent:    "orchestrator",
+		ToAgent:      sql.NullString{String: "test-codex-worker-turn", Valid: true},
+		Type:         "prompt",
+		Content:      "Test codex turn prompt",
+		MentionsJSON: "[]",
+		ReadByJSON:   "[]",
+	}
+	if err := repo.CreateMessage(db, promptMsg); err != nil {
+		t.Fatalf("create prompt message: %v", err)
+	}
+
+	// Mock runner that simulates Codex JSON output with turn events
+	chunks := make(chan ottoexec.TranscriptChunk, 5)
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"thread.started","thread_id":"thread_turn_worker"}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"turn.started"}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"item.started","item":{"type":"output","text":"Processing..."}}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"item.completed","item":{"type":"output","text":"Done processing"}}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"turn.completed"}` + "\n"}
+	close(chunks)
+
+	runner := &mockRunner{
+		startWithTranscriptCaptureEnv: func(name string, env []string, args ...string) (int, <-chan ottoexec.TranscriptChunk, func() error, error) {
+			return 8888, chunks, func() error { return nil }, nil
+		},
+	}
+
+	// Run worker spawn for Codex agent
+	err := runWorkerSpawn(db, runner, "test-codex-worker-turn")
+	if err != nil {
+		t.Fatalf("runWorkerSpawn failed: %v", err)
+	}
+
+	// Verify turn events were logged
+	entries, err := repo.ListLogs(db, ctx.Project, ctx.Branch, "test-codex-worker-turn", "")
+	if err != nil {
+		t.Fatalf("list logs: %v", err)
+	}
+
+	var turnStartedCount, turnCompletedCount int
+	for _, entry := range entries {
+		if entry.EventType == "turn.started" {
+			turnStartedCount++
+			if entry.AgentType != "codex" {
+				t.Errorf("expected agent_type 'codex', got %q", entry.AgentType)
+			}
+		}
+		if entry.EventType == "turn.completed" {
+			turnCompletedCount++
+			if entry.AgentType != "codex" {
+				t.Errorf("expected agent_type 'codex', got %q", entry.AgentType)
+			}
+		}
+	}
+
+	if turnStartedCount != 1 {
+		t.Fatalf("expected 1 turn.started log entry, got %d", turnStartedCount)
+	}
+	if turnCompletedCount != 1 {
+		t.Fatalf("expected 1 turn.completed log entry, got %d", turnCompletedCount)
+	}
+}

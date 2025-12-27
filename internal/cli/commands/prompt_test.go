@@ -297,3 +297,69 @@ func TestCodexPromptLogsItemStarted(t *testing.T) {
 		t.Fatal("expected to find item.started event with text 'Analyzing results...'")
 	}
 }
+
+func TestCodexPromptLogsTurnEvents(t *testing.T) {
+	db := openTestDB(t)
+	ctx := testCtx()
+
+	// Create Codex agent
+	agent := repo.Agent{
+		Project:   ctx.Project,
+		Branch:    ctx.Branch,
+		Name:      "codexer-turn",
+		Type:      "codex",
+		Task:      "task",
+		Status:    "complete",
+		SessionID: sql.NullString{String: "thread-turn1", Valid: true},
+	}
+	if err := repo.CreateAgent(db, agent); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+
+	// Create mock runner that simulates Codex JSON output with turn events
+	chunks := make(chan ottoexec.TranscriptChunk, 4)
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"turn.started"}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"item.started","item":{"type":"output","text":"Working..."}}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"item.completed","item":{"type":"output","text":"Work complete"}}` + "\n"}
+	chunks <- ottoexec.TranscriptChunk{Stream: "stdout", Data: `{"type":"turn.completed"}` + "\n"}
+	close(chunks)
+
+	runner := &mockRunner{
+		startWithTranscriptCaptureEnv: func(name string, env []string, args ...string) (int, <-chan ottoexec.TranscriptChunk, func() error, error) {
+			return 1234, chunks, func() error { return nil }, nil
+		},
+	}
+
+	if err := runPrompt(db, runner, "codexer-turn", "Continue"); err != nil {
+		t.Fatalf("runPrompt failed: %v", err)
+	}
+
+	// Verify turn events were logged
+	entries, err := repo.ListLogs(db, ctx.Project, ctx.Branch, "codexer-turn", "")
+	if err != nil {
+		t.Fatalf("list logs: %v", err)
+	}
+
+	var turnStartedCount, turnCompletedCount int
+	for _, entry := range entries {
+		if entry.EventType == "turn.started" {
+			turnStartedCount++
+			if entry.AgentType != "codex" {
+				t.Errorf("expected agent_type 'codex', got %q", entry.AgentType)
+			}
+		}
+		if entry.EventType == "turn.completed" {
+			turnCompletedCount++
+			if entry.AgentType != "codex" {
+				t.Errorf("expected agent_type 'codex', got %q", entry.AgentType)
+			}
+		}
+	}
+
+	if turnStartedCount != 1 {
+		t.Fatalf("expected 1 turn.started log entry, got %d", turnStartedCount)
+	}
+	if turnCompletedCount != 1 {
+		t.Fatalf("expected 1 turn.completed log entry, got %d", turnCompletedCount)
+	}
+}
