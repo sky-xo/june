@@ -176,6 +176,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.chatInput, cmd = m.chatInput.Update(msg)
 				return m, cmd
 			}
+			// Esc/Tab in right panel: return to sidebar
+			if msg.Type == tea.KeyEsc || msg.Type == tea.KeyTab {
+				m.focusedPanel = panelAgents
+				m.chatInput.Blur()
+				return m, nil
+			}
 		}
 
 		// Global key handling

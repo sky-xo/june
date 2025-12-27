@@ -1869,3 +1869,47 @@ func TestRightPanelRoutesKeysToInput(t *testing.T) {
 		t.Fatalf("expected chat input to capture key, got %q (focused panel: %d, focused: %v)", model.chatInput.Value(), model.focusedPanel, model.chatInput.Focused())
 	}
 }
+
+func TestRightPanelEscReturnsToSidebar(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	m := NewModel(db)
+	m.focusedPanel = panelMessages
+	m.chatInput.Focus() // Focus the input first
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model := next.(model)
+
+	if model.focusedPanel != panelAgents {
+		t.Fatalf("expected sidebar focus, got %v", model.focusedPanel)
+	}
+	if model.chatInput.Focused() {
+		t.Fatalf("expected chat input to be unfocused, but it was focused")
+	}
+}
+
+func TestRightPanelTabReturnsToSidebar(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	m := NewModel(db)
+	m.focusedPanel = panelMessages
+	m.chatInput.Focus() // Focus the input first
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model := next.(model)
+
+	if model.focusedPanel != panelAgents {
+		t.Fatalf("expected sidebar focus, got %v", model.focusedPanel)
+	}
+	if model.chatInput.Focused() {
+		t.Fatalf("expected chat input to be unfocused, but it was focused")
+	}
+}
