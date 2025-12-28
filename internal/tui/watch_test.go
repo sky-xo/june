@@ -2044,6 +2044,71 @@ func TestHandleChatSubmitStoresChatMessage(t *testing.T) {
 	}
 }
 
+func TestHandleChatSubmitReturnsImmediateFetchCommand(t *testing.T) {
+	// Create in-memory database with schema
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Manually create messages table schema
+	schemaSQL := `
+		CREATE TABLE IF NOT EXISTS messages (
+			id TEXT PRIMARY KEY,
+			project TEXT NOT NULL,
+			branch TEXT NOT NULL,
+			from_agent TEXT NOT NULL,
+			to_agent TEXT,
+			type TEXT NOT NULL,
+			content TEXT NOT NULL,
+			mentions TEXT,
+			requires_human BOOLEAN DEFAULT FALSE,
+			read_by TEXT DEFAULT '[]',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			from_id TEXT
+		);
+	`
+	if _, err := db.Exec(schemaSQL); err != nil {
+		t.Fatalf("failed to create schema: %v", err)
+	}
+
+	// Create model with test db
+	m := NewModel(db)
+	m.agents = []repo.Agent{
+		{Project: "otto", Branch: "main", Name: "impl-1", Status: "busy"},
+	}
+
+	// Set activeChannelID to project header
+	m.activeChannelID = "otto/main"
+
+	// Set chat input value
+	m.chatInput.SetValue("test message")
+
+	// Call handleChatSubmit - should return a command
+	cmd := m.handleChatSubmit()
+
+	// Verify that a command was returned (not nil)
+	if cmd == nil {
+		t.Fatal("expected handleChatSubmit to return a command for immediate message fetch, got nil")
+	}
+
+	// Execute the command to verify it's a fetchMessagesCmd
+	// We can't inspect the command type directly, but we can execute it
+	// and verify it returns messagesMsg
+	msg := cmd()
+
+	// Should return a messagesMsg (even if empty)
+	switch msg.(type) {
+	case messagesMsg:
+		// Success - this is what we expect
+	case error:
+		// Also acceptable - might be an error from the fetch
+	default:
+		t.Errorf("expected command to return messagesMsg or error, got %T", msg)
+	}
+}
+
 func TestFormatChatMessageSlackStyle(t *testing.T) {
 	m := NewModel(nil)
 	m.width = 80
@@ -2138,6 +2203,45 @@ func TestFormatOttoCompleteMessageSlackStyle(t *testing.T) {
 
 	if !hasSlackStyleFormat {
 		t.Errorf("expected Slack-style format for otto complete message with sender on separate line")
+		for i, line := range lines {
+			t.Logf("Line %d: %q", i, stripAnsi(line))
+		}
+	}
+}
+
+func TestFormatSayMessageSlackStyle(t *testing.T) {
+	m := NewModel(nil)
+	m.width = 80
+
+	// Create a "say" message from orchestrator
+	messages := []repo.Message{
+		{
+			FromAgent: "orchestrator",
+			Type:      "say",
+			Content:   "I have completed the analysis",
+		},
+	}
+
+	m.messages = messages
+
+	// Get formatted lines
+	lines := m.mainContentLines(80)
+
+	// Verify that "orchestrator" appears on its own line (Slack-style format)
+	hasSlackStyleFormat := false
+	for i := 0; i < len(lines)-1; i++ {
+		stripped := stripAnsi(lines[i])
+		nextStripped := stripAnsi(lines[i+1])
+
+		// Check if we have a line that's just "orchestrator" followed by content
+		if strings.TrimSpace(stripped) == "orchestrator" && strings.Contains(nextStripped, "I have completed") {
+			hasSlackStyleFormat = true
+			break
+		}
+	}
+
+	if !hasSlackStyleFormat {
+		t.Errorf("expected Slack-style format for 'say' message with sender on separate line")
 		for i, line := range lines {
 			t.Logf("Line %d: %q", i, stripAnsi(line))
 		}

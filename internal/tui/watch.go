@@ -508,6 +508,7 @@ func (m model) mainContentLines(width int) []string {
 	for _, msg := range m.messages {
 		// Check if this should use Slack-style block format
 		useSlackStyle := msg.Type == repo.MessageTypeChat ||
+			msg.Type == "say" ||
 			(msg.Type == "complete" && msg.FromAgent == "otto")
 
 		if useSlackStyle {
@@ -1536,7 +1537,8 @@ func (m *model) handleChatSubmit() tea.Cmd {
 		return func() tea.Msg { return err }
 	}
 
-	return nil
+	// Return a command to immediately fetch messages so the user message appears without delay
+	return fetchMessagesCmd(m.db, project, branch, m.lastMessageID)
 }
 
 // Run starts the TUI
