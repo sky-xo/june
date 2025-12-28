@@ -1310,16 +1310,18 @@ func wrapText(text string, width int) []string {
 		// If adding this word would exceed width, start a new line
 		if len(currentLine) > 0 && len(currentLine)+1+len(wordRunes) > width {
 			lines = append(lines, string(currentLine))
-			currentLine = wordRunes
-		} else if len(currentLine) == 0 {
-			// First word on line
-			if len(wordRunes) > width {
+			currentLine = nil
+		}
+
+		// Handle word that needs to go on current line
+		if len(currentLine) == 0 {
+			// First word on line - might need to break it
+			for len(wordRunes) > width {
 				// Word is too long, hard break it
 				lines = append(lines, string(wordRunes[:width]))
-				currentLine = wordRunes[width:]
-			} else {
-				currentLine = wordRunes
+				wordRunes = wordRunes[width:]
 			}
+			currentLine = wordRunes
 		} else {
 			// Add word to current line with space
 			currentLine = append(currentLine, ' ')

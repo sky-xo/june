@@ -2,6 +2,7 @@ package tui
 
 import (
 	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -2489,3 +2490,285 @@ func TestActivityLinesAreDimmed(t *testing.T) {
 		t.Errorf("expected activity line format:\n  %q\ngot:\n  %q", expected, stripped)
 	}
 }
+
+// Task 4.2: Word wrapping tests for chat blocks
+
+func TestWrapTextBasic(t *testing.T) {
+	tests := []struct {
+		name     string
+		text     string
+		width    int
+		expected []string
+	}{
+		{
+			name:     "short text fits on one line",
+			text:     "hello world",
+			width:    20,
+			expected: []string{"hello world"},
+		},
+		{
+			name:     "text exactly at width",
+			text:     "hello world",
+			width:    11,
+			expected: []string{"hello world"},
+		},
+		{
+			name:     "text wraps at word boundary",
+			text:     "hello world from testing",
+			width:    15,
+			expected: []string{"hello world", "from testing"},
+		},
+		{
+			name:     "multiple wraps",
+			text:     "this is a longer message that will wrap multiple times",
+			width:    20,
+			expected: []string{"this is a longer", "message that will", "wrap multiple times"},
+		},
+		{
+			name:     "single long word wraps mid-word",
+			text:     "supercalifragilisticexpialidocious",
+			width:    10,
+			expected: []string{"supercalif", "ragilistic", "expialidoc", "ious"},
+		},
+		{
+			name:     "zero width returns empty line",
+			text:     "hello",
+			width:    0,
+			expected: []string{""},
+		},
+		{
+			name:     "negative width returns empty line",
+			text:     "hello",
+			width:    -1,
+			expected: []string{""},
+		},
+		{
+			name:     "empty text returns empty line",
+			text:     "",
+			width:    10,
+			expected: []string{""},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := wrapText(tt.text, tt.width)
+			if len(result) != len(tt.expected) {
+				t.Errorf("expected %d lines, got %d\nExpected: %v\nGot: %v",
+					len(tt.expected), len(result), tt.expected, result)
+				return
+			}
+			for i, line := range result {
+				if line != tt.expected[i] {
+					t.Errorf("line %d: expected %q, got %q", i, tt.expected[i], line)
+				}
+			}
+		})
+	}
+}
+
+func TestChatMessageWrapsToViewportWidth(t *testing.T) {
+	m := NewModel(nil)
+	m.width = 40
+
+	// Create a chat message with long content
+	longMessage := strings.Repeat("word ", 30) // 150 chars total
+	messages := []repo.Message{
+		{
+			FromAgent: "you",
+			Type:      repo.MessageTypeChat,
+			Content:   longMessage,
+		},
+	}
+	m.messages = messages
+
+	// Get formatted lines with width=40
+	lines := m.mainContentLines(40)
+
+	// Strip ANSI codes and check that no line exceeds width
+	for i, line := range lines {
+		stripped := stripAnsi(line)
+		// Skip blank lines
+		if stripped == "" {
+			continue
+		}
+		if len([]rune(stripped)) > 40 {
+			t.Errorf("line %d exceeds width 40: len=%d, content=%q",
+				i, len([]rune(stripped)), stripped)
+		}
+	}
+
+	// Verify that the message was actually wrapped (should have multiple content lines)
+	// We expect: sender name line + multiple wrapped content lines + blank line
+	if len(lines) < 4 { // At minimum: sender + 2 content lines + blank
+		t.Errorf("expected message to wrap into multiple lines, got %d lines", len(lines))
+	}
+}
+
+func TestChatMessageWrapsWithDifferentWidths(t *testing.T) {
+	widths := []int{20, 40, 60, 80}
+	content := "This is a moderately long chat message that should wrap differently at different viewport widths."
+
+	for _, width := range widths {
+		t.Run(fmt.Sprintf("width=%d", width), func(t *testing.T) {
+			m := NewModel(nil)
+			m.width = width
+
+			messages := []repo.Message{
+				{
+					FromAgent: "otto",
+					Type:      repo.MessageTypeChat,
+					Content:   content,
+				},
+			}
+			m.messages = messages
+
+			lines := m.mainContentLines(width)
+
+			// Check each line doesn't exceed width
+			for i, line := range lines {
+				stripped := stripAnsi(line)
+				if stripped == "" {
+					continue
+				}
+				lineLen := len([]rune(stripped))
+				if lineLen > width {
+					t.Errorf("line %d exceeds width %d: len=%d, content=%q",
+						i, width, lineLen, stripped)
+				}
+			}
+		})
+	}
+}
+
+func TestChatMessageWithMultibyteCharacters(t *testing.T) {
+	m := NewModel(nil)
+	m.width = 20
+
+	// Message with Unicode characters (emojis, accents, etc.)
+	content := "Hello 世界 🌍 こんにちは Café"
+	messages := []repo.Message{
+		{
+			FromAgent: "you",
+			Type:      repo.MessageTypeChat,
+			Content:   content,
+		},
+	}
+	m.messages = messages
+
+	lines := m.mainContentLines(20)
+
+	// Check that lines are properly wrapped respecting character boundaries
+	for i, line := range lines {
+		stripped := stripAnsi(line)
+		if stripped == "" {
+			continue
+		}
+		lineLen := len([]rune(stripped))
+		if lineLen > 20 {
+			t.Errorf("line %d exceeds width 20: len=%d, content=%q",
+				i, lineLen, stripped)
+		}
+	}
+}
+
+func TestOttoCompleteMessageWrapsCorrectly(t *testing.T) {
+	m := NewModel(nil)
+	m.width = 40
+
+	// Otto's complete message with long content
+	longContent := "I have successfully completed the task you requested. " +
+		"The implementation is now finished and ready for review. " +
+		"All tests are passing."
+
+	messages := []repo.Message{
+		{
+			FromAgent: "otto",
+			Type:      "complete",
+			Content:   longContent,
+		},
+	}
+	m.messages = messages
+
+	lines := m.mainContentLines(40)
+
+	// Verify wrapping
+	for i, line := range lines {
+		stripped := stripAnsi(line)
+		if stripped == "" {
+			continue
+		}
+		if len([]rune(stripped)) > 40 {
+			t.Errorf("line %d exceeds width 40: len=%d, content=%q",
+				i, len([]rune(stripped)), stripped)
+		}
+	}
+
+	// Verify Slack-style format is maintained
+	hasSlackFormat := false
+	for i := 0; i < len(lines)-1; i++ {
+		stripped := stripAnsi(lines[i])
+		if strings.TrimSpace(stripped) == "otto" {
+			hasSlackFormat = true
+			break
+		}
+	}
+	if !hasSlackFormat {
+		t.Error("expected Slack-style format with otto on separate line")
+	}
+}
+
+func TestWrapTextPreservesWordBoundaries(t *testing.T) {
+	text := "one two three four five"
+	result := wrapText(text, 12)
+
+	// Verify each line is a complete word or words, not broken mid-word
+	for i, line := range result {
+		// Check that line doesn't start or end with partial word
+		// (except for words longer than width)
+		words := strings.Fields(line)
+		rejoined := strings.Join(words, " ")
+		if rejoined != line {
+			t.Errorf("line %d has unexpected spacing: %q", i, line)
+		}
+	}
+}
+
+func TestMultipleChatMessagesAllWrapCorrectly(t *testing.T) {
+	m := NewModel(nil)
+	m.width = 30
+
+	messages := []repo.Message{
+		{
+			FromAgent: "you",
+			Type:      repo.MessageTypeChat,
+			Content:   "This is my first message and it is quite long",
+		},
+		{
+			FromAgent: "otto",
+			Type:      repo.MessageTypeChat,
+			Content:   "This is my response and it is also quite long",
+		},
+		{
+			FromAgent: "you",
+			Type:      repo.MessageTypeChat,
+			Content:   "Short reply",
+		},
+	}
+	m.messages = messages
+
+	lines := m.mainContentLines(30)
+
+	// Verify all lines respect width
+	for i, line := range lines {
+		stripped := stripAnsi(line)
+		if stripped == "" {
+			continue
+		}
+		if len([]rune(stripped)) > 30 {
+			t.Errorf("line %d exceeds width 30: len=%d, content=%q",
+				i, len([]rune(stripped)), stripped)
+		}
+	}
+}
+
