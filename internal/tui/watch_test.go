@@ -1913,3 +1913,53 @@ func TestRightPanelTabReturnsToSidebar(t *testing.T) {
 		t.Fatalf("expected chat input to be unfocused, but it was focused")
 	}
 }
+
+func TestRightPanelIgnoresScrollKeys(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	m := NewModel(db)
+	m.width = 80
+	m.height = 24
+	m.focusedPanel = panelMessages
+	m.chatInput.Focus()
+
+	// Set up viewport with some initial position
+	m.updateViewportDimensions()
+	m.viewport.YOffset = 5
+
+	// Try j key (should NOT scroll viewport)
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	updated := next.(model)
+
+	if updated.viewport.YOffset != 5 {
+		t.Fatalf("expected viewport YOffset to remain 5 after 'j' key, got %d", updated.viewport.YOffset)
+	}
+
+	// Try k key (should NOT scroll viewport)
+	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	updated = next.(model)
+
+	if updated.viewport.YOffset != 5 {
+		t.Fatalf("expected viewport YOffset to remain 5 after 'k' key, got %d", updated.viewport.YOffset)
+	}
+
+	// Try g key (should NOT scroll viewport to top)
+	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	updated = next.(model)
+
+	if updated.viewport.YOffset != 5 {
+		t.Fatalf("expected viewport YOffset to remain 5 after 'g' key, got %d", updated.viewport.YOffset)
+	}
+
+	// Try G key (should NOT scroll viewport to bottom)
+	next, _ = updated.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	updated = next.(model)
+
+	if updated.viewport.YOffset != 5 {
+		t.Fatalf("expected viewport YOffset to remain 5 after 'G' key, got %d", updated.viewport.YOffset)
+	}
+}
