@@ -10,9 +10,9 @@ What's next. For detailed design, see `docs/plans/`.
 
 Completed - see commits `727ef67`, `00d4d8e`, etc.
 
-### 2. Unified Chat Stream ⬅️ IN PROGRESS
+### ~~2. Unified Chat Stream~~ ✅ DONE
 
-**Status:** Phase 4 in progress (polish tasks)
+**Status:** All 4 phases complete
 
 **Progress:**
 - ✅ Task 1.1: Right panel sends all keys to chat input (commit `ea21dd7`)
@@ -24,17 +24,18 @@ Completed - see commits `727ef67`, `00d4d8e`, etc.
 - ✅ Task 3.2: Render activity lines and hide noise (commit `e0621a0`)
 - ✅ Task 4.1: Apply color styles for chat and activity lines (commit `d53e1de`)
 - ✅ Task 4.2: Improve word wrapping for chat blocks (commit `5ed007d`)
-- ⬅️ Task 4.3: Scroll to bottom on new messages (NEXT)
+- ✅ Task 4.3: Scroll to bottom on new messages (commit `c374a4b`)
+- ✅ Bugfix: Wire Enter key to handleChatSubmit (commit `5b5986e`)
 
-**Implementation Plan:** `docs/plans/2025-12-27-unified-chat-stream-design.md` - has detailed TDD tasks
+**Implementation Plan:** `docs/plans/2025-12-27-unified-chat-stream-design.md`
 
 **Phases:**
 - ✅ Phase 1: Two-focus keyboard model (3 tasks) - COMPLETE
 - ✅ Phase 2: User message storage (2 tasks) - COMPLETE
 - ✅ Phase 3: Message rendering (Slack-style) - COMPLETE
-- ⬅️ Phase 4: Polish (2/3 done, Task 4.3 next)
+- ✅ Phase 4: Polish (3 tasks) - COMPLETE
 
-### 3. Agent Chat in TUI
+### 3. Agent Chat in TUI ⬅️ NEXT
 
 **Why:** Currently only orchestrator chat works. This adds chat with individual agents.
 
