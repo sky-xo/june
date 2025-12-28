@@ -499,30 +499,63 @@ func (m model) mainContentLines(width int) []string {
 
 	lines := make([]string, 0, len(m.messages))
 	for _, msg := range m.messages {
-		fromStyle := lipgloss.NewStyle().Foreground(usernameColor(msg.FromAgent)).Bold(true)
-		fromText := padRight(fromStyle.Render(msg.FromAgent), fromWidth)
+		// Check if this should use Slack-style block format
+		useSlackStyle := msg.Type == repo.MessageTypeChat ||
+			(msg.Type == "complete" && msg.FromAgent == "otto")
 
-		content, style := formatMessage(msg)
+		if useSlackStyle {
+			// Slack-style format: sender name on its own line, then content
+			fromStyle := lipgloss.NewStyle().Foreground(usernameColor(msg.FromAgent)).Bold(true)
 
-		// For prompts with a target agent, prepend styled @mention
-		var mentionPrefix string
-		if msg.Type == "prompt" && msg.ToAgent.Valid {
-			mentionStyle := lipgloss.NewStyle().Foreground(usernameColor(msg.ToAgent.String)).Bold(true)
-			mentionPrefix = mentionStyle.Render("@"+msg.ToAgent.String) + " "
-		}
+			// Line 1: Just the sender name
+			lines = append(lines, fromStyle.Render(msg.FromAgent))
 
-		// Wrap long lines to prevent overflow
-		contentLines := wrapText(content, contentWidth)
-		for i, line := range contentLines {
-			var displayLine string
-			if i == 0 {
-				// First line: show "from" prefix and optional @mention
-				displayLine = fromText + " " + mentionPrefix + style.Render(line)
+			// Get content (without the "completed -" prefix for complete messages in Slack style)
+			var content string
+			var style lipgloss.Style
+			if msg.Type == "complete" {
+				// For complete messages, just show the content without prefix
+				content = msg.Content
+				style = messageStyle
 			} else {
-				// Continuation lines: indent to align with content
-				displayLine = strings.Repeat(" ", fromWidth+1) + style.Render(line)
+				content, style = formatMessage(msg)
 			}
-			lines = append(lines, displayLine)
+
+			// Line 2+: Content, word-wrapped to full width
+			contentLines := wrapText(content, width)
+			for _, line := range contentLines {
+				lines = append(lines, style.Render(line))
+			}
+
+			// Blank line after each block
+			lines = append(lines, "")
+		} else {
+			// Old inline format for other message types
+			fromStyle := lipgloss.NewStyle().Foreground(usernameColor(msg.FromAgent)).Bold(true)
+			fromText := padRight(fromStyle.Render(msg.FromAgent), fromWidth)
+
+			content, style := formatMessage(msg)
+
+			// For prompts with a target agent, prepend styled @mention
+			var mentionPrefix string
+			if msg.Type == "prompt" && msg.ToAgent.Valid {
+				mentionStyle := lipgloss.NewStyle().Foreground(usernameColor(msg.ToAgent.String)).Bold(true)
+				mentionPrefix = mentionStyle.Render("@"+msg.ToAgent.String) + " "
+			}
+
+			// Wrap long lines to prevent overflow
+			contentLines := wrapText(content, contentWidth)
+			for i, line := range contentLines {
+				var displayLine string
+				if i == 0 {
+					// First line: show "from" prefix and optional @mention
+					displayLine = fromText + " " + mentionPrefix + style.Render(line)
+				} else {
+					// Continuation lines: indent to align with content
+					displayLine = strings.Repeat(" ", fromWidth+1) + style.Render(line)
+				}
+				lines = append(lines, displayLine)
+			}
 		}
 	}
 	return lines

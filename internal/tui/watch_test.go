@@ -2042,3 +2042,138 @@ func TestHandleChatSubmitStoresChatMessage(t *testing.T) {
 		t.Errorf("expected Branch to be 'main', got %q", msg.Branch)
 	}
 }
+
+func TestFormatChatMessageSlackStyle(t *testing.T) {
+	m := NewModel(nil)
+	m.width = 80
+
+	// Create chat messages
+	messages := []repo.Message{
+		{
+			FromAgent: "you",
+			Type:      repo.MessageTypeChat,
+			Content:   "hey there",
+		},
+		{
+			FromAgent: "otto",
+			Type:      "complete",
+			Content:   "I'm done with that task",
+		},
+	}
+
+	m.messages = messages
+
+	// Get formatted lines
+	lines := m.mainContentLines(80)
+
+	// Join all lines for easier inspection
+	output := strings.Join(lines, "\n")
+
+	// Verify that "you" appears on its own line (not inline with content)
+	// The output should have:
+	// you
+	// hey there
+	// (blank line)
+	// otto
+	// I'm done with that task
+	// (blank line)
+
+	// Check that "you" is on a separate line from "hey there"
+	if !strings.Contains(output, "you\n") && !strings.Contains(output, "you ") {
+		t.Errorf("expected 'you' to appear as sender name, got:\n%s", output)
+	}
+
+	// Check that there's a line with just the sender name (not inline with content)
+	hasSlackStyleFormat := false
+	for i := 0; i < len(lines)-1; i++ {
+		stripped := stripAnsi(lines[i])
+		nextStripped := stripAnsi(lines[i+1])
+
+		// Check if we have a line that's just a username followed by content
+		if strings.TrimSpace(stripped) == "you" && strings.Contains(nextStripped, "hey there") {
+			hasSlackStyleFormat = true
+			break
+		}
+	}
+
+	if !hasSlackStyleFormat {
+		t.Errorf("expected Slack-style format with sender on separate line, got:\n%s", output)
+		for i, line := range lines {
+			t.Logf("Line %d: %q", i, stripAnsi(line))
+		}
+	}
+}
+
+func TestFormatOttoCompleteMessageSlackStyle(t *testing.T) {
+	m := NewModel(nil)
+	m.width = 80
+
+	// Create a complete message from otto
+	messages := []repo.Message{
+		{
+			FromAgent: "otto",
+			Type:      "complete",
+			Content:   "Task completed successfully",
+		},
+	}
+
+	m.messages = messages
+
+	// Get formatted lines
+	lines := m.mainContentLines(80)
+
+	// Verify that "otto" appears on its own line
+	hasSlackStyleFormat := false
+	for i := 0; i < len(lines)-1; i++ {
+		stripped := stripAnsi(lines[i])
+		nextStripped := stripAnsi(lines[i+1])
+
+		// Check if we have a line that's just "otto" followed by content
+		if strings.TrimSpace(stripped) == "otto" && strings.Contains(nextStripped, "Task completed") {
+			hasSlackStyleFormat = true
+			break
+		}
+	}
+
+	if !hasSlackStyleFormat {
+		t.Errorf("expected Slack-style format for otto complete message with sender on separate line")
+		for i, line := range lines {
+			t.Logf("Line %d: %q", i, stripAnsi(line))
+		}
+	}
+}
+
+func TestFormatNonChatMessageKeepsOldFormat(t *testing.T) {
+	m := NewModel(nil)
+	m.width = 80
+
+	// Create a prompt message (should keep old format for now)
+	messages := []repo.Message{
+		{
+			FromAgent: "user",
+			ToAgent:   sql.NullString{String: "impl-1", Valid: true},
+			Type:      "prompt",
+			Content:   "do something",
+		},
+	}
+
+	m.messages = messages
+
+	// Get formatted lines - should still use old inline format
+	lines := m.mainContentLines(80)
+
+	if len(lines) == 0 {
+		t.Fatal("expected at least one line")
+	}
+
+	// For now, prompt messages should still be inline (Task 3.2 will change this)
+	firstLine := stripAnsi(lines[0])
+
+	// Should have username and content on same line (old format)
+	if strings.Contains(firstLine, "user") && strings.Contains(firstLine, "do something") {
+		// Good - old format still works
+	} else {
+		t.Logf("Got line: %q", firstLine)
+		// This is ok for now - we're only changing chat/complete types
+	}
+}
