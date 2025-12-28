@@ -294,6 +294,12 @@ func countString(items []string, target string) int {
 	return count
 }
 
+func TestMessageTypeChatConstant(t *testing.T) {
+	if MessageTypeChat == "" {
+		t.Fatal("expected MessageTypeChat to be defined")
+	}
+}
+
 func TestGetLatestPromptForAgent(t *testing.T) {
 	db := openTestDB(t)
 

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 )
 
+const MessageTypeChat = "chat"
+
 type Message struct {
 	ID            string
 	Project       string
