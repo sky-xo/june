@@ -21,6 +21,7 @@ func Execute() {
 	rootCmd.AddCommand(commands.NewSayCmd())
 	rootCmd.AddCommand(commands.NewAskCmd())
 	rootCmd.AddCommand(commands.NewCompleteCmd())
+	rootCmd.AddCommand(commands.NewDMCmd())
 	rootCmd.AddCommand(commands.NewMessagesCmd())
 	rootCmd.AddCommand(commands.NewStatusCmd())
 	rootCmd.AddCommand(commands.NewArchiveCmd())
