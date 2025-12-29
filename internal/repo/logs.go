@@ -2,6 +2,8 @@ package repo
 
 import (
 	"database/sql"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -123,4 +125,44 @@ func CountLogs(db *sql.DB, project, branch, agentName string) (int, error) {
 	err := db.QueryRow(`SELECT COUNT(*) FROM logs WHERE project = ? AND branch = ? AND agent_name = ?`,
 		project, branch, agentName).Scan(&count)
 	return count, err
+}
+
+// GetAgentLastActivity returns the last activity time for each agent based on log entries.
+// Returns a map of agent name -> last activity time.
+func GetAgentLastActivity(db *sql.DB, project, branch string, agentNames []string) (map[string]time.Time, error) {
+	result := make(map[string]time.Time)
+	if len(agentNames) == 0 {
+		return result, nil
+	}
+
+	// Build placeholders for IN clause
+	placeholders := make([]string, len(agentNames))
+	args := make([]interface{}, 0, len(agentNames)+2)
+	args = append(args, project, branch)
+	for i, name := range agentNames {
+		placeholders[i] = "?"
+		args = append(args, name)
+	}
+
+	query := `SELECT agent_name, MAX(created_at) FROM logs WHERE project = ? AND branch = ? AND agent_name IN (` + strings.Join(placeholders, ",") + `) GROUP BY agent_name`
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var agentName string
+		var createdAt string
+		if err := rows.Scan(&agentName, &createdAt); err != nil {
+			return nil, err
+		}
+		t, err := time.Parse("2006-01-02 15:04:05", createdAt)
+		if err != nil {
+			return nil, err
+		}
+		result[agentName] = t
+	}
+	return result, rows.Err()
 }
