@@ -1206,9 +1206,7 @@ func (m model) layout() (leftWidth, rightWidth, panelHeight, contentHeight int) 
 }
 
 func channelIndicator(ch SidebarItem) (string, lipgloss.Style) {
-	if ch.Kind == SidebarChannelHeader {
-		return "●", statusCompleteStyle
-	}
+	// Note: This function is only called for SidebarAgentRow items
 	status := strings.ToLower(ch.Status)
 	switch status {
 	case "busy":
