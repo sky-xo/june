@@ -76,6 +76,43 @@ Completed - see commits `727ef67`, `00d4d8e`, etc.
 
 ---
 
+## Feedback from Claude about stumbling blocks when trying to use otto to run codex subagents:
+
+Stumbling Blocks
+
+1. Name collision on spawn
+
+First spawn failed with UNIQUE constraint failed because plan-reviewer already existed. Had to guess a unique name db-workflow-review-1.
+
+2. block parameter doesn't exist
+
+The skill doc says to use BashOutput with block: true to wait - but that parameter doesn't exist on the tool. Got an error.
+
+3. Finding the actual review was confusing
+
+- otto status → showed "busy" then "complete", no content
+- otto peek → showed agent reading files, not the final findings
+- otto messages → one-line summary: "Reviewed... reported issues"
+- BashOutput on spawn → raw JSON stream, not human-readable
+- otto log --tail 100 → finally found it, but buried after 600+ lines of file contents
+
+4. No clean "get the result" command
+
+The review findings were embedded in the agent's reasoning text within the JSON log. I had to parse through command output to find them.
+
+---
+What Would Be Ideal
+
+1. otto result <agent> - A command that returns just the agent's final deliverable/conclusion, not the full execution log
+2. otto status with preview - Show first ~200 chars of the completion message inline
+3. Clearer output separation - Distinguish "what the agent did" (file reads, commands) from "what the agent concluded" (the review)
+4. Waiting mechanism - Either fix the block param or provide otto wait <agent> that blocks until done
+5. Name uniqueness help - Either auto-suffix names or show existing agents when there's a collision
+
+## Bugs
+
+- agent names conflict across different projects. the unique constraint on the db should be tied to project/branch-name/agent-name not just to agent-name
+
 ## Backlog (Deferred Items)
 
 Issues identified during implementation, deferred for future work.
@@ -105,6 +142,7 @@ Issues identified during implementation, deferred for future work.
 
 ## Future (Not V0)
 
+- Use Anthropic's Bloom to evaluate otto vs claude + superpowers
 - Hard gates on flow transitions
 - Claude as orchestrator
 - Multiple root tasks per branch
