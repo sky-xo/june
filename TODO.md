@@ -80,15 +80,19 @@ Completed - see commits `727ef67`, `00d4d8e`, etc.
 
 Stumbling Blocks
 
-1. Name collision on spawn
+1. ~~Name collision on spawn~~ ❌ NOT ADDRESSED
 
 First spawn failed with UNIQUE constraint failed because plan-reviewer already existed. Had to guess a unique name db-workflow-review-1.
 
-2. block parameter doesn't exist
+**Status:** Still an issue - see Bugs section below.
+
+2. ~~block parameter doesn't exist~~ ✅ ADDRESSED (was documentation bug)
 
 The skill doc says to use BashOutput with block: true to wait - but that parameter doesn't exist on the tool. Got an error.
 
-3. Finding the actual review was confusing
+**Fix:** Corrected skill documentation - removed incorrect `block: true` reference.
+
+3. ~~Finding the actual review was confusing~~ ✅ ADDRESSED
 
 - otto status → showed "busy" then "complete", no content
 - otto peek → showed agent reading files, not the final findings
@@ -96,18 +100,22 @@ The skill doc says to use BashOutput with block: true to wait - but that paramet
 - BashOutput on spawn → raw JSON stream, not human-readable
 - otto log --tail 100 → finally found it, but buried after 600+ lines of file contents
 
-4. No clean "get the result" command
+**Fix:** Enhanced `otto peek` to show completion messages for completed agents. See `docs/plans/2025-12-29-agent-messaging-redesign.md`.
+
+4. ~~No clean "get the result" command~~ ✅ ADDRESSED
 
 The review findings were embedded in the agent's reasoning text within the JSON log. I had to parse through command output to find them.
+
+**Fix:** Enhanced `otto peek` serves this purpose. Also added `otto dm <agent> "<message>"` for direct messaging.
 
 ---
 What Would Be Ideal
 
-1. otto result <agent> - A command that returns just the agent's final deliverable/conclusion, not the full execution log
-2. otto status with preview - Show first ~200 chars of the completion message inline
-3. Clearer output separation - Distinguish "what the agent did" (file reads, commands) from "what the agent concluded" (the review)
-4. Waiting mechanism - Either fix the block param or provide otto wait <agent> that blocks until done
-5. Name uniqueness help - Either auto-suffix names or show existing agents when there's a collision
+1. ~~otto result <agent>~~ ✅ ADDRESSED - `otto peek <agent>` now shows completion message
+2. ~~otto status with preview~~ ✅ ADDRESSED - `otto peek` provides this
+3. ~~Clearer output separation~~ ✅ ADDRESSED - `otto peek` shows completion messages separately
+4. ~~Waiting mechanism~~ ✅ ADDRESSED - Documentation corrected (agents notify on completion automatically)
+5. ❌ Name uniqueness help - Either auto-suffix names or show existing agents when there's a collision - REMAINS OPEN
 
 ## Bugs
 
@@ -157,6 +165,7 @@ Issues identified during implementation, deferred for future work.
 - `docs/plans/2025-12-25-super-orchestrator-v0-design.md` - Main design doc
 - `docs/plans/2025-12-27-codex-event-logging-plan.md` - Codex event logging (Ready)
 - `docs/plans/2025-12-27-unified-chat-stream-design.md` - Unified chat stream (Ready)
+- `docs/plans/2025-12-29-agent-messaging-redesign.md` - Agent messaging redesign (Ready)
 - `docs/plans/2025-12-27-agent-diff-capture-design.md` - File diffs (DRAFT)
 - `docs/plans/2025-12-28-tui-replace-on-complete-design.md` - Replace-on-complete (DRAFT)
 
