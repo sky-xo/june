@@ -822,7 +822,7 @@ func (m model) sidebarItems() []SidebarItem {
 
 				// If this project's archived section is expanded, show the archived agents
 				if m.isArchivedExpanded(key) {
-					ordered := sortArchivedAgents(archivedForProject)
+					ordered := sortArchivedAgents(archivedForProject, map[string]time.Time{})
 					for _, agent := range ordered {
 						channels = append(channels, SidebarItem{
 							ID:      agent.Name,
@@ -1248,21 +1248,30 @@ func sortAgentsByStatus(agents []repo.Agent) []repo.Agent {
 	return ordered
 }
 
-func sortArchivedAgents(agents []repo.Agent) []repo.Agent {
+func sortArchivedAgents(agents []repo.Agent, lastActivity map[string]time.Time) []repo.Agent {
 	ordered := make([]repo.Agent, len(agents))
 	copy(ordered, agents)
 	sort.SliceStable(ordered, func(i, j int) bool {
-		iTime := ordered[i].ArchivedAt.Time
-		jTime := ordered[j].ArchivedAt.Time
-		if !ordered[i].ArchivedAt.Valid {
-			iTime = time.Time{}
+		// Primary sort: by last activity time (descending)
+		// Fall back to ArchivedAt if no activity in map
+		iTime, iHasActivity := lastActivity[ordered[i].Name]
+		if !iHasActivity {
+			iTime = ordered[i].ArchivedAt.Time
+			if !ordered[i].ArchivedAt.Valid {
+				iTime = time.Time{}
+			}
 		}
-		if !ordered[j].ArchivedAt.Valid {
-			jTime = time.Time{}
+		jTime, jHasActivity := lastActivity[ordered[j].Name]
+		if !jHasActivity {
+			jTime = ordered[j].ArchivedAt.Time
+			if !ordered[j].ArchivedAt.Valid {
+				jTime = time.Time{}
+			}
 		}
 		if !iTime.Equal(jTime) {
 			return iTime.After(jTime)
 		}
+		// Secondary sort: by agent name alphabetically
 		return ordered[i].Name < ordered[j].Name
 	})
 	return ordered
