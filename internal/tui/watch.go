@@ -112,6 +112,16 @@ type transcriptsMsg struct {
 	entries []repo.LogEntry
 }
 
+// SidebarItemKind identifies the type of item in the sidebar
+type SidebarItemKind int
+
+const (
+	SidebarChannelHeader  SidebarItemKind = iota // Project/branch header (e.g., "otto/main")
+	SidebarAgentRow                              // An agent in the channel
+	SidebarArchivedSection                       // "N archived" collapsible section
+	SidebarDivider                               // Visual separator between channels
+)
+
 type channel struct {
 	ID      string
 	Name    string
