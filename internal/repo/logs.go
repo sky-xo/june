@@ -117,3 +117,10 @@ func ListLogsWithTail(db *sql.DB, project, branch, agentName string, n int) ([]L
 	}
 	return out, nil
 }
+
+func CountLogs(db *sql.DB, project, branch, agentName string) (int, error) {
+	var count int
+	err := db.QueryRow(`SELECT COUNT(*) FROM logs WHERE project = ? AND branch = ? AND agent_name = ?`,
+		project, branch, agentName).Scan(&count)
+	return count, err
+}

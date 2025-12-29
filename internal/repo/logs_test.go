@@ -136,3 +136,34 @@ func TestListLogsWithTail(t *testing.T) {
 		t.Errorf("expected first to be 'line 7', got %v", logs[0].Content)
 	}
 }
+
+func TestCountLogs(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	project := "test-project"
+	branch := "main"
+	agentName := "test-agent"
+
+	// Create some log entries
+	for i := 0; i < 5; i++ {
+		if err := CreateLogEntry(db, LogEntry{
+			Project:   project,
+			Branch:    branch,
+			AgentName: agentName,
+			AgentType: "codex",
+			EventType: "output",
+			Content:   nullStr("line"),
+		}); err != nil {
+			t.Fatalf("create log: %v", err)
+		}
+	}
+
+	count, err := CountLogs(db, project, branch, agentName)
+	if err != nil {
+		t.Fatalf("CountLogs failed: %v", err)
+	}
+	if count != 5 {
+		t.Errorf("expected 5, got %d", count)
+	}
+}
