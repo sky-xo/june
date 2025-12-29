@@ -18,7 +18,6 @@ func Execute() {
 	}
 
 	// Add commands
-	rootCmd.AddCommand(commands.NewSayCmd())
 	rootCmd.AddCommand(commands.NewAskCmd())
 	rootCmd.AddCommand(commands.NewCompleteCmd())
 	rootCmd.AddCommand(commands.NewDMCmd())
