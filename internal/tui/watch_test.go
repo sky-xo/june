@@ -429,6 +429,101 @@ func TestFetchAgentsFetchesAllProjects(t *testing.T) {
 	}
 }
 
+func TestFetchAgentsIncludesArchivedAgents(t *testing.T) {
+	// Create in-memory database with schema
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Manually create schema
+	schemaSQL := `
+		CREATE TABLE IF NOT EXISTS agents (
+			project TEXT NOT NULL,
+			branch TEXT NOT NULL,
+			name TEXT NOT NULL,
+			type TEXT NOT NULL,
+			task TEXT NOT NULL,
+			status TEXT NOT NULL,
+			session_id TEXT,
+			pid INTEGER,
+			compacted_at DATETIME,
+			last_seen_message_id TEXT,
+			peek_cursor TEXT,
+			completed_at DATETIME,
+			archived_at DATETIME,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (project, branch, name)
+		);
+	`
+	if _, err := db.Exec(schemaSQL); err != nil {
+		t.Fatalf("failed to create schema: %v", err)
+	}
+
+	// Insert active agent
+	ctx := scope.CurrentContext()
+	currentProject := ctx.Project
+	currentBranch := ctx.Branch
+
+	_, err = db.Exec(
+		`INSERT INTO agents (project, branch, name, type, task, status) VALUES (?, ?, ?, ?, ?, ?)`,
+		currentProject, currentBranch, "active-agent", "codex", "task 1", "busy",
+	)
+	if err != nil {
+		t.Fatalf("failed to insert active agent: %v", err)
+	}
+
+	// Insert archived agent
+	_, err = db.Exec(
+		`INSERT INTO agents (project, branch, name, type, task, status, archived_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		currentProject, currentBranch, "archived-agent", "codex", "task 2", "completed", "2024-01-01 00:00:00",
+	)
+	if err != nil {
+		t.Fatalf("failed to insert archived agent: %v", err)
+	}
+
+	// Call fetchAgentsCmd - it should return BOTH active and archived agents
+	cmd := fetchAgentsCmd(db)
+	msg := cmd()
+
+	// Verify we got the correct agents
+	agentsMsg, ok := msg.(agentsMsg)
+	if !ok {
+		if err, ok := msg.(error); ok {
+			t.Fatalf("fetchAgentsCmd returned error: %v", err)
+		}
+		t.Fatalf("expected agentsMsg, got %T", msg)
+	}
+
+	// Verify we got both active and archived agents
+	if len(agentsMsg) != 2 {
+		t.Errorf("expected 2 agents (1 active + 1 archived), got %d", len(agentsMsg))
+	}
+
+	// Verify both agents are present
+	names := map[string]bool{}
+	for _, a := range agentsMsg {
+		names[a.Name] = true
+	}
+	if !names["active-agent"] || !names["archived-agent"] {
+		t.Errorf("expected both active-agent and archived-agent, got %v", names)
+	}
+
+	// Verify the archived agent has archived_at set
+	var archivedAgent repo.Agent
+	for _, a := range agentsMsg {
+		if a.Name == "archived-agent" {
+			archivedAgent = a
+			break
+		}
+	}
+	if !archivedAgent.ArchivedAt.Valid {
+		t.Errorf("expected archived-agent to have ArchivedAt set, but it was not set")
+	}
+}
+
 func TestFetchMessagesUsesCurrentScope(t *testing.T) {
 	// Create in-memory database with schema
 	db, err := sql.Open("sqlite", ":memory:")

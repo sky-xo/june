@@ -1377,7 +1377,7 @@ func fetchMessagesCmd(db *sql.DB, project, branch, sinceID string) tea.Cmd {
 func fetchAgentsCmd(db *sql.DB) tea.Cmd {
 	return func() tea.Msg {
 		// Fetch all agents across all projects (TUI groups by project/branch)
-		agents, err := repo.ListAgents(db, repo.AgentFilter{})
+		agents, err := repo.ListAgents(db, repo.AgentFilter{IncludeArchived: true})
 		if err != nil {
 			return err
 		}
