@@ -122,6 +122,21 @@ const (
 	SidebarDivider                               // Visual separator between channels
 )
 
+func (k SidebarItemKind) String() string {
+	switch k {
+	case SidebarChannelHeader:
+		return "channel_header"
+	case SidebarAgentRow:
+		return "agent"
+	case SidebarArchivedSection:
+		return "archived_section"
+	case SidebarDivider:
+		return "divider"
+	default:
+		return "unknown"
+	}
+}
+
 // SidebarItem represents a single row in the TUI sidebar.
 // This is a view model - the domain model is repo.Agent.
 type SidebarItem struct {
