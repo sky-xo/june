@@ -18,6 +18,7 @@ type Message struct {
 	MentionsJSON  string
 	RequiresHuman bool
 	ReadByJSON    string
+	CreatedAt     string
 }
 
 type MessageFilter struct {
@@ -40,7 +41,7 @@ func CreateMessage(db *sql.DB, m Message) error {
 }
 
 func ListMessages(db *sql.DB, f MessageFilter) ([]Message, error) {
-	query := `SELECT id, project, branch, from_agent, to_agent, type, content, mentions, requires_human, read_by FROM messages`
+	query := `SELECT id, project, branch, from_agent, to_agent, type, content, mentions, requires_human, read_by, strftime('%Y-%m-%d %H:%M:%S', created_at) FROM messages`
 	var args []interface{}
 	where := ""
 	var sinceCreatedAt string
@@ -94,7 +95,7 @@ func ListMessages(db *sql.DB, f MessageFilter) ([]Message, error) {
 	var out []Message
 	for rows.Next() {
 		var m Message
-		if err := rows.Scan(&m.ID, &m.Project, &m.Branch, &m.FromAgent, &m.ToAgent, &m.Type, &m.Content, &m.MentionsJSON, &m.RequiresHuman, &m.ReadByJSON); err != nil {
+		if err := rows.Scan(&m.ID, &m.Project, &m.Branch, &m.FromAgent, &m.ToAgent, &m.Type, &m.Content, &m.MentionsJSON, &m.RequiresHuman, &m.ReadByJSON, &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		if f.Mention != "" && !mentionsContain(m.MentionsJSON, f.Mention) {

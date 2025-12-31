@@ -233,6 +233,15 @@ type SidebarItem struct {
 	Branch  string
 }
 
+// chatItem represents a renderable item in the main chat view
+type chatItem struct {
+	timestamp string
+	fromAgent string
+	content   string
+	itemType  string // "chat", "otto_response", "activity", "complete", etc.
+	toAgent   string // for activity lines
+}
+
 // CommandRunner executes shell commands. Can be overridden for testing.
 type CommandRunner func(name string, args ...string) error
 
@@ -629,8 +638,47 @@ func (m model) renderChannels(width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
+// buildChatItems merges messages and otto log entries into a sorted list
+func (m model) buildChatItems() []chatItem {
+	var items []chatItem
+
+	// Add messages
+	for _, msg := range m.messages {
+		item := chatItem{
+			timestamp: msg.CreatedAt,
+			fromAgent: msg.FromAgent,
+			content:   msg.Content,
+			itemType:  msg.Type,
+		}
+		if msg.ToAgent.Valid {
+			item.toAgent = msg.ToAgent.String
+		}
+		items = append(items, item)
+	}
+
+	// Add otto's agent_message entries
+	for _, entry := range m.ottoMessages {
+		if entry.Content.Valid && entry.Content.String != "" {
+			items = append(items, chatItem{
+				timestamp: entry.CreatedAt,
+				fromAgent: "otto",
+				content:   entry.Content.String,
+				itemType:  "otto_response",
+			})
+		}
+	}
+
+	// Sort by timestamp
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].timestamp < items[j].timestamp
+	})
+
+	return items
+}
+
 func (m model) mainContentLines(width int) []string {
-	if len(m.messages) == 0 {
+	items := m.buildChatItems()
+	if len(items) == 0 {
 		return []string{messageStyle.Render("Waiting for messages...")}
 	}
 
@@ -643,97 +691,67 @@ func (m model) mainContentLines(width int) []string {
 		contentWidth = 1
 	}
 
-	lines := make([]string, 0, len(m.messages))
-	for _, msg := range m.messages {
-		// Check if this should use Slack-style block format
-		useSlackStyle := msg.Type == repo.MessageTypeChat ||
-			msg.Type == "say" ||
-			(msg.Type == "complete" && msg.FromAgent == "otto")
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		// Slack-style for: user chat, otto responses, say messages
+		useSlackStyle := item.itemType == repo.MessageTypeChat ||
+			item.itemType == "otto_response" ||
+			item.itemType == "say"
 
 		if useSlackStyle {
-			// Slack-style format: sender name on its own line, then content
-			fromStyle := lipgloss.NewStyle().Foreground(usernameColor(msg.FromAgent)).Bold(true)
+			fromStyle := lipgloss.NewStyle().Foreground(usernameColor(item.fromAgent)).Bold(true)
+			lines = append(lines, fromStyle.Render(item.fromAgent))
 
-			// Line 1: Just the sender name
-			lines = append(lines, fromStyle.Render(msg.FromAgent))
-
-			// Get content (without the "completed -" prefix for complete messages in Slack style)
-			var content string
-			var style lipgloss.Style
-			if msg.Type == "complete" {
-				// For complete messages, just show the content without prefix
-				content = msg.Content
-				style = messageStyle
-			} else {
-				content, style = formatMessage(msg)
-			}
-
-			// Line 2+: Content, word-wrapped to full width
-			contentLines := wrapText(content, width)
+			contentLines := wrapText(item.content, width)
 			for _, line := range contentLines {
-				lines = append(lines, style.Render(line))
+				lines = append(lines, messageStyle.Render(line))
 			}
+			lines = append(lines, "") // Blank line after block
+			continue
+		}
 
-			// Blank line after each block
+		// Hide noisy messages
+		if item.itemType == "prompt" && item.toAgent == "otto" {
+			continue
+		}
+		if item.itemType == "exit" {
+			continue
+		}
+		// Hide complete messages from otto (now we show actual response)
+		if item.itemType == "complete" && item.fromAgent == "otto" {
+			continue
+		}
+
+		// Activity line for spawning other agents
+		if item.itemType == "prompt" && item.toAgent != "" && item.toAgent != "otto" {
+			activityLine := fmt.Sprintf("%s spawned %s — \"%s\"",
+				item.fromAgent, item.toAgent, item.content)
+			lines = append(lines, mutedStyle.Render(activityLine))
 			lines = append(lines, "")
-		} else {
-			// Task 3.2: Filter noisy messages and format prompts as activity lines
+			continue
+		}
 
-			// Hide prompt-to-otto messages (user's chat message already shows this intent)
-			if msg.Type == "prompt" && msg.ToAgent.Valid && msg.ToAgent.String == "otto" {
-				continue // Skip this message
-			}
+		// Sub-agent completions as activity lines
+		if item.itemType == "complete" && item.fromAgent != "otto" {
+			activityLine := fmt.Sprintf("%s completed", item.fromAgent)
+			lines = append(lines, mutedStyle.Render(activityLine))
+			lines = append(lines, "")
+			continue
+		}
 
-			// Hide exit messages (implementation detail, not user-facing)
-			if msg.Type == "exit" {
-				continue // Skip this message
-			}
-
-			// Format prompts to other agents as activity lines
-			if msg.Type == "prompt" && msg.ToAgent.Valid && msg.ToAgent.String != "otto" {
-				// Activity line format: "{FromAgent} spawned {ToAgent} — "{Content}""
-				activityLine := fmt.Sprintf("%s spawned %s — \"%s\"",
-					msg.FromAgent, msg.ToAgent.String, msg.Content)
-				lines = append(lines, mutedStyle.Render(activityLine))
-				lines = append(lines, "") // Blank line after activity
-				continue
-			}
-
-			// Old inline format for other message types
-			fromStyle := lipgloss.NewStyle().Foreground(usernameColor(msg.FromAgent)).Bold(true)
-			fromText := padRight(fromStyle.Render(msg.FromAgent), fromWidth)
-
-			content, style := formatMessage(msg)
-
-			// For prompts with a target agent, prepend styled @mention
-			var mentionPrefix string
-			if msg.Type == "prompt" && msg.ToAgent.Valid {
-				mentionStyle := lipgloss.NewStyle().Foreground(usernameColor(msg.ToAgent.String)).Bold(true)
-				mentionPrefix = mentionStyle.Render("@"+msg.ToAgent.String) + " "
-			}
-
-			// Wrap long lines to prevent overflow
-			contentLines := wrapText(content, contentWidth)
-			for i, line := range contentLines {
-				var displayLine string
-				if i == 0 {
-					// First line: show "from" prefix and optional @mention
-					displayLine = fromText + " " + mentionPrefix + style.Render(line)
-				} else {
-					// Continuation lines: indent to align with content
-					displayLine = strings.Repeat(" ", fromWidth+1) + style.Render(line)
-				}
-				lines = append(lines, displayLine)
-			}
-
-			// Add blank line after complete messages for visual separation
-			if msg.Type == "complete" {
-				lines = append(lines, "")
+		// Default: inline format for other types
+		fromStyle := lipgloss.NewStyle().Foreground(usernameColor(item.fromAgent)).Bold(true)
+		fromText := padRight(fromStyle.Render(item.fromAgent), fromWidth)
+		contentLines := wrapText(item.content, contentWidth)
+		for i, line := range contentLines {
+			if i == 0 {
+				lines = append(lines, fromText+" "+messageStyle.Render(line))
+			} else {
+				lines = append(lines, strings.Repeat(" ", fromWidth+1)+messageStyle.Render(line))
 			}
 		}
 	}
 
-	// If all messages were filtered out, show the waiting message
 	if len(lines) == 0 {
 		return []string{messageStyle.Render("Waiting for messages...")}
 	}

@@ -76,7 +76,8 @@ func TestFormatOttoCompleteMessageSlackStyle(t *testing.T) {
 	m := NewModel(nil)
 	m.width = 80
 
-	// Create a complete message from otto
+	// Otto's complete messages are now hidden (we show otto_response instead)
+	// This test verifies that complete messages from otto are filtered out
 	messages := []repo.Message{
 		{
 			FromAgent: "otto",
@@ -87,10 +88,41 @@ func TestFormatOttoCompleteMessageSlackStyle(t *testing.T) {
 
 	m.messages = messages
 
+	// Get formatted lines - should show "Waiting for messages..." since complete is hidden
+	lines := m.mainContentLines(80)
+
+	// Since otto complete is hidden and there are no otto_response items,
+	// we should get the "Waiting for messages..." placeholder
+	if len(lines) != 1 {
+		t.Errorf("expected 1 line (placeholder), got %d lines", len(lines))
+		for i, line := range lines {
+			t.Logf("Line %d: %q", i, stripAnsi(line))
+		}
+		return
+	}
+
+	stripped := stripAnsi(lines[0])
+	if !strings.Contains(stripped, "Waiting for messages...") {
+		t.Errorf("expected 'Waiting for messages...' placeholder, got %q", stripped)
+	}
+}
+
+func TestFormatOttoResponseSlackStyle(t *testing.T) {
+	m := NewModel(nil)
+	m.width = 80
+
+	// Create an otto_response entry (from agent_message logs)
+	m.ottoMessages = []repo.LogEntry{
+		{
+			Content:   sql.NullString{String: "Task completed successfully", Valid: true},
+			CreatedAt: "2025-01-01 12:00:00",
+		},
+	}
+
 	// Get formatted lines
 	lines := m.mainContentLines(80)
 
-	// Verify that "otto" appears on its own line
+	// Verify that "otto" appears on its own line (Slack-style)
 	hasSlackStyleFormat := false
 	for i := 0; i < len(lines)-1; i++ {
 		stripped := stripAnsi(lines[i])
@@ -104,7 +136,7 @@ func TestFormatOttoCompleteMessageSlackStyle(t *testing.T) {
 	}
 
 	if !hasSlackStyleFormat {
-		t.Errorf("expected Slack-style format for otto complete message with sender on separate line")
+		t.Errorf("expected Slack-style format for otto_response with sender on separate line")
 		for i, line := range lines {
 			t.Logf("Line %d: %q", i, stripAnsi(line))
 		}
@@ -434,16 +466,14 @@ func TestUsernameColorForOtto(t *testing.T) {
 	m := NewModel(nil)
 	m.width = 80
 
-	// Create a complete message from otto (Slack-style)
-	messages := []repo.Message{
+	// Create an otto_response entry (Slack-style)
+	m.ottoMessages = []repo.LogEntry{
 		{
-			FromAgent: "otto",
-			Type:      "complete",
-			Content:   "Task completed",
+			Content:   sql.NullString{String: "Task completed", Valid: true},
+			CreatedAt: "2025-01-01 12:00:00",
 		},
 	}
 
-	m.messages = messages
 	lines := m.mainContentLines(80)
 
 	if len(lines) < 2 {
@@ -457,7 +487,7 @@ func TestUsernameColorForOtto(t *testing.T) {
 		t.Errorf("expected first line to be 'otto', got %q", senderLine)
 	}
 
-	// Second line should be the content (without "completed -" prefix for Slack style)
+	// Second line should be the content
 	contentLine := stripAnsi(lines[1])
 	if !strings.Contains(contentLine, "Task completed") {
 		t.Errorf("expected second line to contain content, got %q", contentLine)
@@ -678,23 +708,21 @@ func TestChatMessageWithMultibyteCharacters(t *testing.T) {
 	}
 }
 
-func TestOttoCompleteMessageWrapsCorrectly(t *testing.T) {
+func TestOttoResponseWrapsCorrectly(t *testing.T) {
 	m := NewModel(nil)
 	m.width = 40
 
-	// Otto's complete message with long content
+	// Otto's response with long content
 	longContent := "I have successfully completed the task you requested. " +
 		"The implementation is now finished and ready for review. " +
 		"All tests are passing."
 
-	messages := []repo.Message{
+	m.ottoMessages = []repo.LogEntry{
 		{
-			FromAgent: "otto",
-			Type:      "complete",
-			Content:   longContent,
+			Content:   sql.NullString{String: longContent, Valid: true},
+			CreatedAt: "2025-01-01 12:00:00",
 		},
 	}
-	m.messages = messages
 
 	lines := m.mainContentLines(40)
 
