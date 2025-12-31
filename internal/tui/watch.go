@@ -524,8 +524,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Discard messages from wrong project
 				break
 			}
-			m.messages = append(m.messages, msg...)
+
+			// Deduplicate - build set of existing IDs
+			existing := make(map[string]struct{}, len(m.messages))
+			for _, existingMsg := range m.messages {
+				existing[existingMsg.ID] = struct{}{}
+			}
+
+			// Only append messages that don't already exist
+			for _, newMsg := range msg {
+				if _, found := existing[newMsg.ID]; !found {
+					m.messages = append(m.messages, newMsg)
+				}
+			}
+
+			// Update cursor to latest received
 			m.lastMessageID = msg[len(msg)-1].ID
+
 			// Update viewport if we're viewing orchestrator chat (Main or a project header)
 			showingOrchestratorChat := m.activeChannelID == mainChannelID || isProjectHeader(m.activeChannelID)
 			if showingOrchestratorChat {
@@ -1773,6 +1788,14 @@ func (m *model) handleChatSubmit() tea.Cmd {
 		return func() tea.Msg { return err }
 	}
 
+	// Optimistic UI update - add message to local state immediately
+	m.messages = append(m.messages, chatMsg)
+	m.lastMessageID = chatMsg.ID
+
+	// Update viewport to show the new message immediately
+	m.updateViewportContent()
+	m.viewport.GotoBottom()
+
 	// Clear input immediately
 	m.chatInput.SetValue("")
 
@@ -1795,8 +1818,9 @@ func (m *model) handleChatSubmit() tea.Cmd {
 		}
 	}
 
-	// Return a command to immediately fetch messages so the user message appears without delay
-	return fetchMessagesCmd(m.db, project, branch, m.lastMessageID)
+	// No need to fetch messages - we already added the user message optimistically
+	// and the tick handler will pick up any responses
+	return nil
 }
 
 // Run starts the TUI

@@ -306,7 +306,7 @@ func TestHandleChatSubmitStoresChatMessage(t *testing.T) {
 	}
 }
 
-func TestHandleChatSubmitReturnsImmediateFetchCommand(t *testing.T) {
+func TestHandleChatSubmitOptimisticUIUpdate(t *testing.T) {
 	// Create in-memory database with schema
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
@@ -346,30 +346,47 @@ func TestHandleChatSubmitReturnsImmediateFetchCommand(t *testing.T) {
 	// Set activeChannelID to project header
 	m.activeChannelID = "otto/main"
 
+	// Verify initial state
+	if len(m.messages) != 0 {
+		t.Fatalf("expected 0 initial messages, got %d", len(m.messages))
+	}
+	if m.lastMessageID != "" {
+		t.Fatalf("expected empty lastMessageID, got %q", m.lastMessageID)
+	}
+
 	// Set chat input value
 	m.chatInput.SetValue("test message")
 
-	// Call handleChatSubmit - should return a command
+	// Call handleChatSubmit - now uses optimistic UI so returns nil
 	cmd := m.handleChatSubmit()
 
-	// Verify that a command was returned (not nil)
-	if cmd == nil {
-		t.Fatal("expected handleChatSubmit to return a command for immediate message fetch, got nil")
+	// Should return nil (no fetch command needed since message is added optimistically)
+	if cmd != nil {
+		t.Errorf("expected handleChatSubmit to return nil (optimistic UI), got a command")
 	}
 
-	// Execute the command to verify it's a fetchMessagesCmd
-	// We can't inspect the command type directly, but we can execute it
-	// and verify it returns messagesMsg
-	msg := cmd()
+	// Verify optimistic UI update - message should be in local state
+	if len(m.messages) != 1 {
+		t.Fatalf("expected 1 message after optimistic update, got %d", len(m.messages))
+	}
 
-	// Should return a messagesMsg (even if empty)
-	switch msg.(type) {
-	case messagesMsg:
-		// Success - this is what we expect
-	case error:
-		// Also acceptable - might be an error from the fetch
-	default:
-		t.Errorf("expected command to return messagesMsg or error, got %T", msg)
+	msg := m.messages[0]
+	if msg.FromAgent != "you" {
+		t.Errorf("expected FromAgent to be 'you', got %q", msg.FromAgent)
+	}
+	if msg.Content != "test message" {
+		t.Errorf("expected Content to be 'test message', got %q", msg.Content)
+	}
+	if msg.Project != "otto" {
+		t.Errorf("expected Project to be 'otto', got %q", msg.Project)
+	}
+	if msg.Branch != "main" {
+		t.Errorf("expected Branch to be 'main', got %q", msg.Branch)
+	}
+
+	// Verify lastMessageID was updated
+	if m.lastMessageID != msg.ID {
+		t.Errorf("expected lastMessageID to be %q, got %q", msg.ID, m.lastMessageID)
 	}
 }
 
