@@ -123,6 +123,7 @@ What Would Be Ideal
 
 Previous issues resolved:
 - ~~Agent name collisions~~ - Fixed: Primary key is `(project, branch, name)` and auto-increment prevents duplicates
+- ~~Chat shows summaries, not actual responses~~ - Fixed: Main view now shows otto's actual responses from `agent_message` log entries. See `docs/plans/2025-12-31-otto-chat-ux-fix.md`.
 
 ## Backlog (Deferred Items)
 
