@@ -192,6 +192,10 @@ type transcriptsMsg struct {
 	entries []repo.LogEntry
 }
 
+type ottoMessagesMsg struct {
+	entries []repo.LogEntry
+}
+
 // SidebarItemKind identifies the type of item in the sidebar
 type SidebarItemKind int
 
@@ -242,13 +246,15 @@ func defaultCommandRunner(name string, args ...string) error {
 }
 
 type model struct {
-	db                *sql.DB
-	messages          []repo.Message
-	messagesProject   string // Tracks which project/branch messages are loaded for
-	agents            []repo.Agent
-	transcripts       map[string][]repo.LogEntry
-	lastMessageID     string
-	lastTranscriptIDs map[string]string
+	db                  *sql.DB
+	messages            []repo.Message
+	messagesProject     string // Tracks which project/branch messages are loaded for
+	agents              []repo.Agent
+	transcripts         map[string][]repo.LogEntry
+	lastMessageID       string
+	lastTranscriptIDs   map[string]string
+	ottoMessages        []repo.LogEntry // Otto's agent_message entries for main view
+	lastOttoMessageID   string          // Cursor for incremental fetch
 	width             int
 	height            int
 	cursorIndex       int
@@ -494,6 +500,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.activeChannelID != mainChannelID && !isProjectHeader(m.activeChannelID) {
 			cmds = append(cmds, fetchTranscriptsCmd(m.db, m.activeChannelID, m.lastTranscriptIDs[m.activeChannelID]))
 		}
+		// Fetch otto's agent_message entries for the main view
+		if isProjectHeader(m.activeChannelID) {
+			cmds = append(cmds, fetchOttoMessagesCmd(m.db, project, branch, m.lastOttoMessageID))
+		}
 		return m, tea.Batch(cmds...)
 
 	case messagesMsg:
@@ -514,6 +524,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.transcripts[msg.agentID] = append(current, msg.entries...)
 			m.lastTranscriptIDs[msg.agentID] = msg.entries[len(msg.entries)-1].ID
 			if m.activeChannelID == msg.agentID {
+				m.updateViewportContent()
+				m.viewport.GotoBottom()
+			}
+		}
+
+	case ottoMessagesMsg:
+		if len(msg.entries) > 0 {
+			m.ottoMessages = append(m.ottoMessages, msg.entries...)
+			m.lastOttoMessageID = msg.entries[len(msg.entries)-1].ID
+			// Update viewport if viewing project header
+			if isProjectHeader(m.activeChannelID) {
 				m.updateViewportContent()
 				m.viewport.GotoBottom()
 			}
@@ -1137,6 +1158,8 @@ func (m *model) activateSelection() tea.Cmd {
 		if m.messagesProject != selected.ID {
 			m.messages = nil
 			m.lastMessageID = ""
+			m.ottoMessages = nil
+			m.lastOttoMessageID = ""
 			m.messagesProject = selected.ID
 		}
 
@@ -1568,6 +1591,16 @@ func fetchTranscriptsCmd(db *sql.DB, agentID, sinceID string) tea.Cmd {
 			return err
 		}
 		return transcriptsMsg{agentID: agentID, entries: entries}
+	}
+}
+
+func fetchOttoMessagesCmd(db *sql.DB, project, branch, sinceID string) tea.Cmd {
+	return func() tea.Msg {
+		entries, err := repo.ListAgentMessages(db, project, branch, "otto", sinceID)
+		if err != nil {
+			return err
+		}
+		return ottoMessagesMsg{entries: entries}
 	}
 }
 
