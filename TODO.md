@@ -130,9 +130,9 @@ Issues identified during implementation, deferred for future work.
 
 | # | Issue | Impact | Fix |
 |---|-------|--------|-----|
-| 1 | Global message state when switching projects | `m.messages` and `m.lastMessageID` are global but fetch scope changes per project header. Switching projects may show stale messages. | Scope message lists per `project/branch`, or reset when selecting different project header |
+| ~~1~~ | ~~Global message state when switching projects~~ | ~~`m.messages` and `m.lastMessageID` are global but fetch scope changes per project header. Switching projects may show stale messages.~~ | ✅ Fixed: Added `messagesProject` tracking, clear messages when switching projects (commit `089b037`) |
 | 2 | `isProjectHeader()` misclassifies agent names with `/` | Any channel ID containing `/` is treated as project header. Agent names with `/` would route to orchestrator chat. | Check against actual channel list or use explicit `Kind` field |
-| 3 | Unicode width uses `len()` not display width | `▼`/`▶` are multibyte but display as single char. Width calculations may cause visual misalignment. | Use `lipgloss.Width()` or `runewidth` for sizing |
+| ~~3~~ | ~~Unicode width uses `len()` not display width~~ | ~~`▼`/`▶` are multibyte but display as single char. Width calculations may cause visual misalignment.~~ | ✅ Fixed: Use `len([]rune(...))` and `lipgloss.Width()` (commits `1d20454`, `fb9a1c2`) |
 
 ### From Unified Chat Stream (`docs/plans/2025-12-27-unified-chat-stream-design.md`)
 
