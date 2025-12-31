@@ -119,7 +119,9 @@ What Would Be Ideal
 
 ## Bugs
 
-None currently tracked. Previous issues resolved:
+1. **Multiple otto agents spawned** - Prompting in a project that already has an otto agent spawns `otto-2` instead of reusing the existing one. There should only ever be one otto per project/branch.
+
+Previous issues resolved:
 - ~~Agent name collisions~~ - Fixed: Primary key is `(project, branch, name)` and auto-increment prevents duplicates
 
 ## Backlog (Deferred Items)

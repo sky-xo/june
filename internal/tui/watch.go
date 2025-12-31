@@ -165,7 +165,7 @@ func usernameColor(name string) lipgloss.Color {
 	// Special cases for consistent branding (per design doc)
 	switch name {
 	case "you":
-		return lipgloss.Color("7") // white/default
+		return lipgloss.Color("10") // light green
 	case "otto":
 		return lipgloss.Color("4") // blue
 	}
@@ -404,8 +404,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.Button {
 			case tea.MouseButtonWheelUp:
 				m.viewport.LineUp(3)
+				return m, nil
 			case tea.MouseButtonWheelDown:
 				m.viewport.LineDown(3)
+				return m, nil
 			}
 		}
 
@@ -701,6 +703,11 @@ func (m model) mainContentLines(width int) []string {
 					displayLine = strings.Repeat(" ", fromWidth+1) + style.Render(line)
 				}
 				lines = append(lines, displayLine)
+			}
+
+			// Add blank line after complete messages for visual separation
+			if msg.Type == "complete" {
+				lines = append(lines, "")
 			}
 		}
 	}
