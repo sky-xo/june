@@ -127,6 +127,48 @@ func CountLogs(db *sql.DB, project, branch, agentName string) (int, error) {
 	return count, err
 }
 
+// ListAgentMessages returns agent_message log entries for a specific agent.
+// These are the actual conversational responses from the agent.
+// Used to surface otto's responses to the main chat view.
+func ListAgentMessages(db *sql.DB, project, branch, agentName, sinceID string) ([]LogEntry, error) {
+	query := `SELECT id, project, branch, agent_name, agent_type, event_type, tool_name, content, raw_json, command, exit_code, status, tool_use_id, created_at
+		FROM logs
+		WHERE project = ? AND branch = ? AND agent_name = ? AND event_type = 'agent_message'`
+	args := []interface{}{project, branch, agentName}
+
+	var sinceCreatedAt string
+	var sinceRowID int64
+	if sinceID != "" {
+		if err := db.QueryRow(`SELECT strftime('%Y-%m-%d %H:%M:%S', created_at), rowid FROM logs WHERE id = ?`, sinceID).Scan(&sinceCreatedAt, &sinceRowID); err != nil {
+			if err != sql.ErrNoRows {
+				return nil, err
+			}
+			sinceCreatedAt = ""
+		}
+	}
+	if sinceCreatedAt != "" {
+		query += " AND ((created_at = ? AND rowid > ?) OR created_at > ?)"
+		args = append(args, sinceCreatedAt, sinceRowID, sinceCreatedAt)
+	}
+	query += " ORDER BY created_at ASC, rowid ASC"
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []LogEntry
+	for rows.Next() {
+		var entry LogEntry
+		if err := rows.Scan(&entry.ID, &entry.Project, &entry.Branch, &entry.AgentName, &entry.AgentType, &entry.EventType, &entry.ToolName, &entry.Content, &entry.RawJSON, &entry.Command, &entry.ExitCode, &entry.Status, &entry.ToolUseID, &entry.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, entry)
+	}
+	return out, rows.Err()
+}
+
 // GetAgentLastActivity returns the last activity time for each agent based on log entries.
 // Returns a map of agent name -> last activity time.
 func GetAgentLastActivity(db *sql.DB, project, branch string, agentNames []string) (map[string]time.Time, error) {

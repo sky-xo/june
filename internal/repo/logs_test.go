@@ -286,3 +286,45 @@ func TestGetAgentLastActivity(t *testing.T) {
 		t.Errorf("agent-1 (subset): expected %v, got %v", expected1, subsetResult["agent-1"])
 	}
 }
+
+func TestListAgentMessages(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	project := "test"
+	branch := "main"
+	agentName := "otto"
+
+	// Create various log entries
+	entries := []LogEntry{
+		{Project: project, Branch: branch, AgentName: agentName, AgentType: "codex", EventType: "input", Content: nullStr("user question")},
+		{Project: project, Branch: branch, AgentName: agentName, AgentType: "codex", EventType: "thinking", Content: nullStr("let me think...")},
+		{Project: project, Branch: branch, AgentName: agentName, AgentType: "codex", EventType: "agent_message", Content: nullStr("Here is my response!")},
+		{Project: project, Branch: branch, AgentName: agentName, AgentType: "codex", EventType: "command_execution", Command: nullStr("ls")},
+		{Project: project, Branch: branch, AgentName: agentName, AgentType: "codex", EventType: "agent_message", Content: nullStr("And another response")},
+		{Project: project, Branch: branch, AgentName: "other-agent", AgentType: "codex", EventType: "agent_message", Content: nullStr("from other agent")},
+	}
+
+	for _, e := range entries {
+		if err := CreateLogEntry(db, e); err != nil {
+			t.Fatalf("create log entry: %v", err)
+		}
+	}
+
+	// Fetch only agent_message entries for otto
+	result, err := ListAgentMessages(db, project, branch, agentName, "")
+	if err != nil {
+		t.Fatalf("ListAgentMessages: %v", err)
+	}
+
+	if len(result) != 2 {
+		t.Fatalf("expected 2 agent_message entries, got %d", len(result))
+	}
+
+	if result[0].Content.String != "Here is my response!" {
+		t.Errorf("expected first message 'Here is my response!', got %q", result[0].Content.String)
+	}
+	if result[1].Content.String != "And another response" {
+		t.Errorf("expected second message 'And another response', got %q", result[1].Content.String)
+	}
+}
