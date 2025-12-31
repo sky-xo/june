@@ -1278,9 +1278,20 @@ func (m *model) ensureSelection() {
 			if ch.Kind != SidebarDivider {
 				m.cursorIndex = i
 				m.activeChannelID = ch.ID
-				// If selecting a project header and focus is on messages panel, focus chat input
-				if ch.Kind == SidebarChannelHeader && m.focusedPanel == panelMessages {
-					m.chatInput.Focus()
+				// If selecting a project header, sync message state
+				if ch.Kind == SidebarChannelHeader {
+					// Clear messages if switching to a different project
+					if m.messagesProject != ch.ID {
+						m.messages = nil
+						m.lastMessageID = ""
+						m.ottoMessages = nil
+						m.lastOttoMessageID = ""
+						m.messagesProject = ch.ID
+					}
+					// Focus chat input if focus is on messages panel
+					if m.focusedPanel == panelMessages {
+						m.chatInput.Focus()
+					}
 				}
 				break
 			}
