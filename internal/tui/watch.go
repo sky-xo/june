@@ -517,6 +517,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messagesMsg:
 		if len(msg) > 0 {
+			// Validate messages are for the currently selected project
+			// (prevents stale fetches from wrong project being displayed)
+			msgProject := msg[0].Project + "/" + msg[0].Branch
+			if msgProject != m.messagesProject {
+				// Discard messages from wrong project
+				break
+			}
 			m.messages = append(m.messages, msg...)
 			m.lastMessageID = msg[len(msg)-1].ID
 			// Update viewport if we're viewing orchestrator chat (Main or a project header)
@@ -540,6 +547,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ottoMessagesMsg:
 		if len(msg.entries) > 0 {
+			// Validate otto messages are for the currently selected project
+			entry := msg.entries[0]
+			msgProject := entry.Project + "/" + entry.Branch
+			if msgProject != m.messagesProject {
+				// Discard messages from wrong project
+				break
+			}
 			m.ottoMessages = append(m.ottoMessages, msg.entries...)
 			m.lastOttoMessageID = msg.entries[len(msg.entries)-1].ID
 			// Update viewport if viewing project header
