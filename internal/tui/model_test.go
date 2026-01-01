@@ -13,6 +13,8 @@ func TestFormatTimestamp(t *testing.T) {
 	// We'll test relative to actual time.Now() since the function uses it
 
 	now := time.Now()
+	// Use noon today to avoid midnight crossing issues
+	todayNoon := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, now.Location())
 
 	tests := []struct {
 		name     string
@@ -21,8 +23,8 @@ func TestFormatTimestamp(t *testing.T) {
 	}{
 		{
 			name:     "today shows just time",
-			input:    now.Add(-1 * time.Hour),
-			contains: "PM", // or AM depending on time - just verify it's a time format
+			input:    todayNoon,
+			contains: "PM", // noon is always PM
 		},
 		{
 			name:     "yesterday shows Yesterday @",
@@ -52,16 +54,18 @@ func TestFormatTimestamp(t *testing.T) {
 }
 
 func TestFormatTimestamp_Today(t *testing.T) {
+	// Use a fixed time at noon today to avoid crossing midnight
+	// regardless of when the test runs
 	now := time.Now()
-	oneHourAgo := now.Add(-1 * time.Hour)
+	todayNoon := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, now.Location())
 
-	result := formatTimestamp(oneHourAgo)
+	result := formatTimestamp(todayNoon)
 
 	// Today's time should NOT contain "Yesterday" or "@" prefix
 	if contains(result, "Yesterday") {
 		t.Errorf("Today's timestamp should not contain 'Yesterday': %q", result)
 	}
-	// Should be just a time like "3:04:05 PM"
+	// Should be just a time like "12:00:00 PM"
 	if contains(result, "@") {
 		t.Errorf("Today's timestamp should not contain '@': %q", result)
 	}

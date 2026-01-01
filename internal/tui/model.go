@@ -26,6 +26,8 @@ var (
 	promptBarStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "4", Dark: "6"})            // blue/cyan for half-block
 	toolStyle       = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#2E7D32", Dark: "#C8FB9E"}) // lime green (matches focused border)
 	toolDimStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "243", Dark: "240"})        // dim gray for command details
+	diffAddStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#2E7D32", Dark: "#98FB98"}) // green for additions
+	diffDelStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#C62828", Dark: "#FF6B6B"}) // red for deletions
 	statusBarStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "243", Dark: "8"})          // gray
 
 	focusedBorderColor   = lipgloss.AdaptiveColor{Light: "#2E7D32", Dark: "#C8FB9E"} // green (darker on light, pale on dark)
@@ -708,12 +710,98 @@ func formatToolUse(e claude.Entry, toolName string, width int) []string {
 		}
 	}
 
+	// Special handling for Edit: show file path + diff
+	if toolName == "Edit" {
+		input := e.ToolInput()
+		filePath, _ := input["file_path"].(string)
+		oldStr, _ := input["old_string"].(string)
+		newStr, _ := input["new_string"].(string)
+
+		// Show file path
+		shortPath := shortenPath(filePath)
+		line := "Edit: " + shortPath
+		if maxLen > 0 && len(line) > maxLen {
+			line = line[:maxLen-3] + "..."
+		}
+		result = append(result, toolStyle.Render("  "+line))
+
+		// Show diff
+		diffLines := formatDiff(oldStr, newStr, maxLen)
+		result = append(result, diffLines...)
+		return result
+	}
+
 	// Default: use ToolSummary for other tools
 	summary := e.ToolSummary()
 	if maxLen > 0 && len(summary) > maxLen {
 		summary = summary[:maxLen-3] + "..."
 	}
 	result = append(result, toolStyle.Render("  "+summary))
+	return result
+}
+
+// shortenPath removes common prefixes to show a shorter path.
+func shortenPath(path string) string {
+	// Remove /Users/xxx/code/ or /home/xxx/code/ prefix
+	if idx := strings.Index(path, "/code/"); idx != -1 {
+		return path[idx+6:] // Skip "/code/"
+	}
+	// Fallback: just return last 3 components
+	parts := strings.Split(path, "/")
+	if len(parts) > 3 {
+		return strings.Join(parts[len(parts)-3:], "/")
+	}
+	return path
+}
+
+// formatDiff renders old/new strings as a simple diff.
+func formatDiff(oldStr, newStr string, maxLen int) []string {
+	var result []string
+
+	// Limit total diff lines to keep output reasonable
+	const maxDiffLines = 8
+
+	oldLines := strings.Split(oldStr, "\n")
+	newLines := strings.Split(newStr, "\n")
+
+	lineCount := 0
+
+	// Show deletions (old lines)
+	for _, line := range oldLines {
+		if lineCount >= maxDiffLines {
+			result = append(result, toolDimStyle.Render("    ... (more lines)"))
+			break
+		}
+		line = strings.TrimRight(line, " \t")
+		if line == "" {
+			continue // Skip empty lines for brevity
+		}
+		display := "- " + line
+		if maxLen > 0 && len(display) > maxLen {
+			display = display[:maxLen-3] + "..."
+		}
+		result = append(result, diffDelStyle.Render("    "+display))
+		lineCount++
+	}
+
+	// Show additions (new lines)
+	for _, line := range newLines {
+		if lineCount >= maxDiffLines {
+			result = append(result, toolDimStyle.Render("    ... (more lines)"))
+			break
+		}
+		line = strings.TrimRight(line, " \t")
+		if line == "" {
+			continue // Skip empty lines for brevity
+		}
+		display := "+ " + line
+		if maxLen > 0 && len(display) > maxLen {
+			display = display[:maxLen-3] + "..."
+		}
+		result = append(result, diffAddStyle.Render("    "+display))
+		lineCount++
+	}
+
 	return result
 }
 
