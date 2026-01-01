@@ -2,8 +2,11 @@
 package claude
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 )
@@ -163,5 +166,63 @@ func TestScanAgentsExtractsDescription(t *testing.T) {
 	expected := "Implement feature X: add button"
 	if agents[0].Description != expected {
 		t.Errorf("expected description %q, got %q", expected, agents[0].Description)
+	}
+}
+
+func TestScanAgentsDescriptionEdgeCases(t *testing.T) {
+	dir := t.TempDir()
+
+	tests := []struct {
+		name     string
+		content  string
+		wantDesc string
+	}{
+		{
+			name:     "empty file",
+			content:  "",
+			wantDesc: "",
+		},
+		{
+			name:     "no user message",
+			content:  `{"type":"assistant","message":{"role":"assistant","content":"Hello"}}`,
+			wantDesc: "",
+		},
+		{
+			name:     "malformed json",
+			content:  `{not valid json`,
+			wantDesc: "",
+		},
+		{
+			name:     "long first line truncated",
+			content:  `{"type":"user","message":{"role":"user","content":"` + strings.Repeat("a", 100) + `"}}`,
+			wantDesc: strings.Repeat("a", 77) + "...",
+		},
+	}
+
+	for i, tc := range tests {
+		filename := fmt.Sprintf("agent-edge%d.jsonl", i)
+		f, _ := os.Create(filepath.Join(dir, filename))
+		f.WriteString(tc.content)
+		f.Close()
+	}
+
+	agents, err := ScanAgents(dir)
+	if err != nil {
+		t.Fatalf("ScanAgents: %v", err)
+	}
+
+	// Sort by ID to have predictable order
+	sort.Slice(agents, func(i, j int) bool {
+		return agents[i].ID < agents[j].ID
+	})
+
+	for i, tc := range tests {
+		if i >= len(agents) {
+			t.Errorf("test %q: agent not found", tc.name)
+			continue
+		}
+		if agents[i].Description != tc.wantDesc {
+			t.Errorf("test %q: expected description %q, got %q", tc.name, tc.wantDesc, agents[i].Description)
+		}
 	}
 }
