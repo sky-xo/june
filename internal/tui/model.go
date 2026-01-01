@@ -23,7 +23,7 @@ var (
 	toolStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 	statusBarStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 
-	focusedBorderColor   = lipgloss.Color("#B4FA72") // Lime green
+	focusedBorderColor   = lipgloss.Color("#C8FB9E") // Pale lime green
 	unfocusedBorderColor = lipgloss.Color("8") // Dim
 )
 
@@ -180,8 +180,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "u":
 			if m.focusedPanel == panelLeft {
-				// Page up in agent list (vim-style: selection stays at same visual row)
-				visualRow := m.selectedIdx - m.sidebarOffset
+				// Page up in agent list - selection jumps to top of visible area
 				_, _, _, contentHeight := m.layout()
 				pageSize := contentHeight / 2
 				if pageSize < 1 {
@@ -191,14 +190,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.sidebarOffset < 0 {
 					m.sidebarOffset = 0
 				}
-				// Keep selection at same visual position
-				m.selectedIdx = m.sidebarOffset + visualRow
-				if m.selectedIdx < 0 {
-					m.selectedIdx = 0
-				}
-				if m.selectedIdx >= len(m.agents) {
-					m.selectedIdx = len(m.agents) - 1
-				}
+				// Selection jumps to top of visible area
+				m.selectedIdx = m.sidebarOffset
 				if agent := m.SelectedAgent(); agent != nil {
 					cmds = append(cmds, loadTranscriptCmd(*agent))
 				}
@@ -208,8 +201,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "d":
 			if m.focusedPanel == panelLeft {
-				// Page down in agent list (vim-style: selection stays at same visual row)
-				visualRow := m.selectedIdx - m.sidebarOffset
+				// Page down in agent list - selection jumps to bottom of visible area
 				_, _, _, contentHeight := m.layout()
 				pageSize := contentHeight / 2
 				if pageSize < 1 {
@@ -223,11 +215,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.sidebarOffset > maxOffset {
 					m.sidebarOffset = maxOffset
 				}
-				// Keep selection at same visual position
-				m.selectedIdx = m.sidebarOffset + visualRow
-				if m.selectedIdx < 0 {
-					m.selectedIdx = 0
-				}
+				// Selection jumps to bottom of visible area
+				visibleLines := m.sidebarVisibleLines()
+				m.selectedIdx = m.sidebarOffset + visibleLines - 1
 				if m.selectedIdx >= len(m.agents) {
 					m.selectedIdx = len(m.agents) - 1
 				}
