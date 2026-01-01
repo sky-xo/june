@@ -1,5 +1,7 @@
 # Subagent Viewer MVP Implementation Plan
 
+**Status:** ✅ MVP COMPLETE (2025-01-01)
+
 > **For Claude:** Use superpowers:subagent-driven-development to implement this plan with parallel subagents where possible.
 
 **Goal:** Build a read-only TUI that displays Claude Code subagent sessions from `agent-*.jsonl` files.
@@ -12,14 +14,30 @@
 
 **Module:** `june` (go.mod)
 
-**Key Existing Code:**
-- `internal/scope/git.go` - Has `RepoRoot()` function that returns git repo root path
-- `internal/tui/watch.go` - Existing TUI (1800+ lines) that we're replacing
-- `~/.claude/projects/{path}/agent-*.jsonl` - Claude Code's subagent files we'll read
+## Implementation Summary
+
+All phases complete. The TUI now:
+- ✅ Displays subagents from `agent-*.jsonl` files
+- ✅ Two-panel layout with borders (sidebar + transcript)
+- ✅ Mouse click to select agents
+- ✅ Keyboard navigation (j/k, Tab to switch panels)
+- ✅ Scroll wheel support
+- ✅ Smart timestamp in header (Today/Yesterday/Weekday/Date)
+- ✅ Full row highlight on selected agent
+- ✅ Auto-refresh without scroll position reset
+- ✅ Active indicator (green dot) for recently modified agents
+
+**Key files created:**
+- `internal/claude/projects.go` - Path mapping
+- `internal/claude/agents.go` - Agent file scanning
+- `internal/claude/transcript.go` - JSONL parsing
+- `internal/tui/model.go` - Bubbletea TUI
+- `internal/tui/commands.go` - TUI commands
+- `internal/tui/model_test.go` - Tests
 
 ---
 
-## Phase 0: Clean Slate
+## Phase 0: Clean Slate ✅
 
 Delete old SQLite-based code before building new file-based viewer. This prevents type conflicts and keeps the build clean.
 
