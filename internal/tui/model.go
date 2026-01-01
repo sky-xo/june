@@ -51,13 +51,14 @@ type Model struct {
 	agents      []claude.Agent            // List of agents
 	transcripts map[string][]claude.Entry // Agent ID -> transcript entries
 
-	selectedIdx   int // Currently selected agent index
-	sidebarOffset int // Scroll offset for the sidebar (index of first visible agent)
-	focusedPanel  int // Which panel has focus (panelLeft or panelRight)
-	width         int
-	height        int
-	viewport      viewport.Model
-	err           error
+	selectedIdx        int  // Currently selected agent index
+	sidebarOffset      int  // Scroll offset for the sidebar (index of first visible agent)
+	lastNavWasKeyboard bool // Track if last sidebar interaction was keyboard (for auto-scroll behavior)
+	focusedPanel       int  // Which panel has focus (panelLeft or panelRight)
+	width              int
+	height             int
+	viewport           viewport.Model
+	err                error
 }
 
 // NewModel creates a new TUI model.
@@ -167,6 +168,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Navigate agent list
 				if m.selectedIdx > 0 {
 					m.selectedIdx--
+					m.lastNavWasKeyboard = true
 					m.ensureSelectedVisible()
 					if agent := m.SelectedAgent(); agent != nil {
 						cmds = append(cmds, loadTranscriptCmd(*agent))
@@ -183,6 +185,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Navigate agent list
 				if m.selectedIdx < len(m.agents)-1 {
 					m.selectedIdx++
+					m.lastNavWasKeyboard = true
 					m.ensureSelectedVisible()
 					if agent := m.SelectedAgent(); agent != nil {
 						cmds = append(cmds, loadTranscriptCmd(*agent))
@@ -218,6 +221,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.selectedIdx = 0
 					}
 				}
+				m.lastNavWasKeyboard = true
 				if agent := m.SelectedAgent(); agent != nil {
 					cmds = append(cmds, loadTranscriptCmd(*agent))
 				}
@@ -253,6 +257,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.selectedIdx = len(m.agents) - 1
 					}
 				}
+				m.lastNavWasKeyboard = true
 				if agent := m.SelectedAgent(); agent != nil {
 					cmds = append(cmds, loadTranscriptCmd(*agent))
 				}
@@ -278,6 +283,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.sidebarOffset > 0 {
 					m.sidebarOffset--
 				}
+				m.lastNavWasKeyboard = false // Mouse scroll - don't auto-scroll to selection
 			} else {
 				m.viewport.LineUp(1)
 			}
@@ -292,6 +298,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.sidebarOffset < maxOffset {
 					m.sidebarOffset++
 				}
+				m.lastNavWasKeyboard = false // Mouse scroll - don't auto-scroll to selection
 			} else {
 				m.viewport.LineDown(1)
 			}
@@ -365,7 +372,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		m.ensureSelectedVisible()
+		// Only auto-scroll to keep selection visible after keyboard navigation,
+		// not after mouse scroll (let user scroll freely with mouse)
+		if m.lastNavWasKeyboard {
+			m.ensureSelectedVisible()
+		}
 		if agent := m.SelectedAgent(); agent != nil {
 			cmds = append(cmds, loadTranscriptCmd(*agent))
 		}
