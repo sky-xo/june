@@ -188,36 +188,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		leftWidth, _, _, _ := m.layout()
 		inLeftPanel := msg.X < leftWidth
 
-		// Handle scroll wheel
-		if msg.Action == tea.MouseActionPress {
-			switch msg.Button {
-			case tea.MouseButtonWheelUp:
-				if inLeftPanel {
-					// Scroll sidebar up by 1 line
-					if m.sidebarOffset > 0 {
-						m.sidebarOffset--
-					}
-					return m, nil
-				} else {
-					m.viewport.LineUp(3)
-					return m, nil
+		// Handle scroll wheel (check button type directly, wheel events always work)
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			if inLeftPanel {
+				// Scroll sidebar up by 1 line
+				if m.sidebarOffset > 0 {
+					m.sidebarOffset--
 				}
-			case tea.MouseButtonWheelDown:
-				if inLeftPanel {
-					// Scroll sidebar down by 1 line
-					maxOffset := len(m.agents) - m.sidebarVisibleLines()
-					if maxOffset < 0 {
-						maxOffset = 0
-					}
-					if m.sidebarOffset < maxOffset {
-						m.sidebarOffset++
-					}
-					return m, nil
-				} else {
-					m.viewport.LineDown(3)
-					return m, nil
-				}
+			} else {
+				m.viewport.LineUp(1)
 			}
+			return m, nil
+		case tea.MouseButtonWheelDown:
+			if inLeftPanel {
+				// Scroll sidebar down by 1 line
+				maxOffset := len(m.agents) - m.sidebarVisibleLines()
+				if maxOffset < 0 {
+					maxOffset = 0
+				}
+				if m.sidebarOffset < maxOffset {
+					m.sidebarOffset++
+				}
+			} else {
+				m.viewport.LineDown(1)
+			}
+			return m, nil
 		}
 
 		// Handle clicks in left panel to select agents
