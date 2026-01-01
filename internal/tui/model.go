@@ -170,10 +170,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case transcriptMsg:
+		// Only scroll to bottom if this is a NEW agent selection (not a refresh)
+		_, hadTranscript := m.transcripts[msg.agentID]
 		m.transcripts[msg.agentID] = msg.entries
 		m.updateViewport()
-		// Scroll to bottom when transcript loads
-		m.viewport.GotoBottom()
+		if !hadTranscript {
+			// First time loading this agent - scroll to bottom
+			m.viewport.GotoBottom()
+		}
 
 	case errMsg:
 		m.err = msg
