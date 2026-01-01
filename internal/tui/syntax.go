@@ -36,7 +36,9 @@ func getCustomStyle() *chroma.Style {
 		// The lime/green color (#a6e22e) is used for various "Name" tokens in monokai.
 		// Change them to white (#f8f8f2) to match regular text, while keeping
 		// special syntax like keywords, strings, and comments colored.
-		whiteText := "#f8f8f2 bg:#272822"
+		// IMPORTANT: Only set foreground color, NO background - we need the diff
+		// line backgrounds (green for insertions, red for deletions) to show through.
+		whiteText := "#f8f8f2"
 
 		// Override the lime-colored tokens to use white instead
 		builder.Add(chroma.NameFunction, whiteText)
@@ -45,7 +47,13 @@ func getCustomStyle() *chroma.Style {
 		builder.Add(chroma.NameDecorator, whiteText)
 		builder.Add(chroma.NameException, whiteText)
 		builder.Add(chroma.NameAttribute, whiteText)
-		// Keep GenericInserted green as it's used for diff highlighting
+
+		// Also override background on common token types to ensure transparency.
+		// Monokai sets bg:#272822 on the base style which bleeds through to tokens.
+		// We need to clear this so diff backgrounds show correctly.
+		builder.Add(chroma.Background, "bg:")
+		builder.Add(chroma.Text, "#f8f8f2")
+		builder.Add(chroma.TextWhitespace, "#f8f8f2")
 
 		var err error
 		customStyle, err = builder.Build()
