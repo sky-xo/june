@@ -70,3 +70,31 @@ func syntaxHighlight(content, filePath string) string {
 func highlightLine(line, filePath string) string {
 	return syntaxHighlight(line, filePath)
 }
+
+// highlightWithBackground applies syntax highlighting while preserving a background color.
+// The issue: chroma outputs ANSI reset codes (\x1b[0m) that clear all attributes including background.
+// This function re-applies the background after each reset sequence.
+func highlightWithBackground(line, filePath string, bgANSI string) string {
+	highlighted := syntaxHighlight(line, filePath)
+	if highlighted == line {
+		// No highlighting applied, return as-is
+		return line
+	}
+
+	// Replace all reset sequences with reset + re-apply background
+	// \x1b[0m becomes \x1b[0m + bgANSI
+	result := strings.ReplaceAll(highlighted, "\x1b[0m", "\x1b[0m"+bgANSI)
+
+	// Wrap the whole thing: start with background, end with reset
+	return bgANSI + result + "\x1b[0m"
+}
+
+// ANSI background codes for diff lines (256-color mode approximations)
+const (
+	// Dark theme backgrounds - using 256-color palette
+	ANSIBgDeleteDark = "\x1b[48;2;61;27;27m"  // #3D1B1B - dark red
+	ANSIBgInsertDark = "\x1b[48;2;27;61;27m"  // #1B3D1B - dark green
+	// Light theme backgrounds
+	ANSIBgDeleteLight = "\x1b[48;2;255;235;238m" // #FFEBEE - light red
+	ANSIBgInsertLight = "\x1b[48;2;232;245;233m" // #E8F5E9 - light green
+)

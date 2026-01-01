@@ -914,18 +914,27 @@ func formatDiff(oldStr, newStr string, maxLen int, filePath string) []string {
 			case DiffDelete:
 				// Deletion: show with "-" marker, apply syntax highlighting
 				prefix := fmt.Sprintf("%d - ", lineNum)
-				highlightedContent := content
 				if filePath != "" {
-					highlightedContent = highlightLine(content, filePath)
-				}
-				// Apply background to prefix, then append highlighted content
-				// Note: diffDelStyle applies both fg and bg; we use bg-only for prefix when highlighting
-				if filePath != "" && highlightedContent != content {
-					// Highlighting was applied - wrap entire line (prefix + highlighted content) in background
-					// The chroma ANSI codes set foreground colors; lipgloss background works with them
-					bgStyle := lipgloss.NewStyle().Background(lipgloss.AdaptiveColor{Light: "#FFEBEE", Dark: "#3D1B1B"})
-					styled = bgStyle.Render("    " + prefix + highlightedContent)
+					var bgANSI string
+					if lipgloss.HasDarkBackground() {
+						bgANSI = ANSIBgDeleteDark
+					} else {
+						bgANSI = ANSIBgDeleteLight
+					}
+					highlightedWithBg := highlightWithBackground(content, filePath, bgANSI)
+					if highlightedWithBg != content {
+						// Highlighting was applied - prefix gets same background treatment
+						styled = "    " + bgANSI + prefix + "\x1b[0m" + highlightedWithBg
+					} else {
+						// Fallback to normal styling
+						display = prefix + content
+						if maxLen > 0 && len(display) > maxLen {
+							display = display[:maxLen-3] + "..."
+						}
+						styled = diffDelStyle.Render("    " + display)
+					}
 				} else {
+					// No filepath, use normal styling
 					display = prefix + content
 					if maxLen > 0 && len(display) > maxLen {
 						display = display[:maxLen-3] + "..."
@@ -935,17 +944,27 @@ func formatDiff(oldStr, newStr string, maxLen int, filePath string) []string {
 			case DiffInsert:
 				// Addition: show with "+" marker, apply syntax highlighting
 				prefix := fmt.Sprintf("%d + ", lineNum)
-				highlightedContent := content
 				if filePath != "" {
-					highlightedContent = highlightLine(content, filePath)
-				}
-				// Apply background to prefix, then append highlighted content
-				if filePath != "" && highlightedContent != content {
-					// Highlighting was applied - wrap entire line (prefix + highlighted content) in background
-					// The chroma ANSI codes set foreground colors; lipgloss background works with them
-					bgStyle := lipgloss.NewStyle().Background(lipgloss.AdaptiveColor{Light: "#E8F5E9", Dark: "#1B3D1B"})
-					styled = bgStyle.Render("    " + prefix + highlightedContent)
+					var bgANSI string
+					if lipgloss.HasDarkBackground() {
+						bgANSI = ANSIBgInsertDark
+					} else {
+						bgANSI = ANSIBgInsertLight
+					}
+					highlightedWithBg := highlightWithBackground(content, filePath, bgANSI)
+					if highlightedWithBg != content {
+						// Highlighting was applied - prefix gets same background treatment
+						styled = "    " + bgANSI + prefix + "\x1b[0m" + highlightedWithBg
+					} else {
+						// Fallback to normal styling
+						display = prefix + content
+						if maxLen > 0 && len(display) > maxLen {
+							display = display[:maxLen-3] + "..."
+						}
+						styled = diffAddStyle.Render("    " + display)
+					}
 				} else {
+					// No filepath, use normal styling
 					display = prefix + content
 					if maxLen > 0 && len(display) > maxLen {
 						display = display[:maxLen-3] + "..."
