@@ -15,8 +15,8 @@ import (
 const sidebarWidth = 20
 
 var (
-	activeStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // green
-	doneStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))  // gray
+	activeStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))           // green
+	doneStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))            // gray
 	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6")) // cyan
 	promptStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
 	toolStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
@@ -28,7 +28,7 @@ type Model struct {
 	agents      []claude.Agent            // List of agents
 	transcripts map[string][]claude.Entry // Agent ID -> transcript entries
 
-	selectedIdx int            // Currently selected agent index
+	selectedIdx int // Currently selected agent index
 	width       int
 	height      int
 	viewport    viewport.Model
