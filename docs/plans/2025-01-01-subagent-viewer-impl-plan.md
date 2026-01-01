@@ -1,6 +1,6 @@
 # Subagent Viewer MVP Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **For Claude:** Use superpowers:subagent-driven-development to implement this plan with parallel subagents where possible.
 
 **Goal:** Build a read-only TUI that displays Claude Code subagent sessions from `agent-*.jsonl` files.
 
@@ -16,6 +16,40 @@
 - `internal/scope/git.go` - Has `RepoRoot()` function that returns git repo root path
 - `internal/tui/watch.go` - Existing TUI (1800+ lines) that we're replacing
 - `~/.claude/projects/{path}/agent-*.jsonl` - Claude Code's subagent files we'll read
+
+---
+
+## Phase 0: Clean Slate
+
+Delete old SQLite-based code before building new file-based viewer. This prevents type conflicts and keeps the build clean.
+
+### Task 0.1: Delete old TUI, repo, db, and unused commands
+
+**Files to delete:**
+- `internal/tui/` (entire directory - 5200+ lines)
+- `internal/repo/` (entire directory - database operations)
+- `internal/db/` (entire directory - SQLite schema)
+- `internal/process/` (if exists - process management for spawning)
+- Most of `internal/cli/commands/` except `watch.go` and `common.go`
+
+**Files to keep:**
+- `internal/cli/root.go` (will simplify)
+- `internal/cli/commands/watch.go` (will rewrite)
+- `internal/cli/commands/common.go` (shared utilities)
+- `internal/scope/` (git detection - we need this)
+- `internal/exec/` (if basic exec utilities needed)
+
+**Steps:**
+1. `git rm -r internal/tui/`
+2. `git rm -r internal/repo/`
+3. `git rm -r internal/db/`
+4. `git rm` unused commands (spawn, dm, ask, complete, messages, status, etc.)
+5. Simplify `internal/cli/root.go` to only register watch command
+6. Stub out `internal/cli/commands/watch.go` to just print "TODO"
+7. Verify `go build ./...` passes
+8. Commit: "chore: remove SQLite-based orchestration code for clean slate"
+
+**Preserving patterns:** The old `renderPanelWithTitle` function is useful - we'll recreate it in the new TUI.
 
 ---
 
