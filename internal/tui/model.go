@@ -26,17 +26,24 @@ var (
 	unfocusedBorderColor = lipgloss.Color("8") // Dim
 )
 
+// Panel focus
+const (
+	panelLeft  = 0
+	panelRight = 1
+)
+
 // Model is the TUI state.
 type Model struct {
 	projectDir  string                    // Claude project directory we're watching
 	agents      []claude.Agent            // List of agents
 	transcripts map[string][]claude.Entry // Agent ID -> transcript entries
 
-	selectedIdx int // Currently selected agent index
-	width       int
-	height      int
-	viewport    viewport.Model
-	err         error
+	selectedIdx  int // Currently selected agent index
+	focusedPanel int // Which panel has focus (panelLeft or panelRight)
+	width        int
+	height       int
+	viewport     viewport.Model
+	err          error
 }
 
 // NewModel creates a new TUI model.
@@ -74,19 +81,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "tab":
+			// Toggle focus between panels
+			if m.focusedPanel == panelLeft {
+				m.focusedPanel = panelRight
+			} else {
+				m.focusedPanel = panelLeft
+			}
 		case "up", "k":
-			if m.selectedIdx > 0 {
-				m.selectedIdx--
-				if agent := m.SelectedAgent(); agent != nil {
-					cmds = append(cmds, loadTranscriptCmd(*agent))
+			if m.focusedPanel == panelLeft {
+				// Navigate agent list
+				if m.selectedIdx > 0 {
+					m.selectedIdx--
+					if agent := m.SelectedAgent(); agent != nil {
+						cmds = append(cmds, loadTranscriptCmd(*agent))
+					}
 				}
+			} else {
+				// Scroll transcript
+				m.viewport.LineUp(1)
 			}
 		case "down", "j":
-			if m.selectedIdx < len(m.agents)-1 {
-				m.selectedIdx++
-				if agent := m.SelectedAgent(); agent != nil {
-					cmds = append(cmds, loadTranscriptCmd(*agent))
+			if m.focusedPanel == panelLeft {
+				// Navigate agent list
+				if m.selectedIdx < len(m.agents)-1 {
+					m.selectedIdx++
+					if agent := m.SelectedAgent(); agent != nil {
+						cmds = append(cmds, loadTranscriptCmd(*agent))
+					}
 				}
+			} else {
+				// Scroll transcript
+				m.viewport.LineDown(1)
 			}
 		case "g":
 			m.viewport.GotoTop()
@@ -214,21 +240,30 @@ func (m Model) View() string {
 
 	leftWidth, rightWidth, panelHeight, contentHeight := m.layout()
 
+	// Determine border colors based on focus
+	leftBorderColor := unfocusedBorderColor
+	rightBorderColor := unfocusedBorderColor
+	if m.focusedPanel == panelLeft {
+		leftBorderColor = focusedBorderColor
+	} else {
+		rightBorderColor = focusedBorderColor
+	}
+
 	// Left panel: agent list
 	leftContent := m.renderSidebarContent(leftWidth-2, contentHeight)
-	leftPanel := renderPanelWithTitle("Subagents", leftContent, leftWidth, panelHeight, unfocusedBorderColor)
+	leftPanel := renderPanelWithTitle("Subagents", leftContent, leftWidth, panelHeight, leftBorderColor)
 
 	// Right panel: transcript
 	var rightTitle string
 	if agent := m.SelectedAgent(); agent != nil {
 		rightTitle = agent.ID
 	}
-	rightPanel := renderPanelWithTitle(rightTitle, m.viewport.View(), rightWidth, panelHeight, focusedBorderColor)
+	rightPanel := renderPanelWithTitle(rightTitle, m.viewport.View(), rightWidth, panelHeight, rightBorderColor)
 
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
 	// Status bar
-	status := statusBarStyle.Render("j/k: navigate | g/G: top/bottom | q: quit")
+	status := statusBarStyle.Render("Tab: switch panel | j/k: navigate/scroll | g/G: top/bottom | q: quit")
 
 	return lipgloss.JoinVertical(lipgloss.Left, panels, status)
 }
@@ -244,11 +279,11 @@ func (m Model) renderSidebarContent(width, height int) string {
 			break
 		}
 
+		// Determine indicator (without styling for selected row)
 		var indicator string
+		indicatorChar := "✓"
 		if agent.IsActive() {
-			indicator = activeStyle.Render("●")
-		} else {
-			indicator = doneStyle.Render("✓")
+			indicatorChar = "●"
 		}
 
 		name := agent.ID
@@ -257,20 +292,23 @@ func (m Model) renderSidebarContent(width, height int) string {
 			name = name[:maxNameLen]
 		}
 
-		// Build the line content
-		lineContent := fmt.Sprintf("%s %s", indicator, name)
-
-		// For selected item, pad to full width and apply background
 		if i == m.selectedIdx {
+			// For selected row: render plain text, pad to full width, then apply background to entire row
+			lineContent := fmt.Sprintf("%s %s", indicatorChar, name)
 			// Pad to full width so background spans entire row
-			visualWidth := lipgloss.Width(lineContent)
-			if visualWidth < width {
-				lineContent = lineContent + strings.Repeat(" ", width-visualWidth)
+			if len(lineContent) < width {
+				lineContent = lineContent + strings.Repeat(" ", width-len(lineContent))
 			}
-			lineContent = selectedBgStyle.Render(lineContent)
+			lines = append(lines, selectedBgStyle.Render(lineContent))
+		} else {
+			// For non-selected: apply color to indicator only
+			if agent.IsActive() {
+				indicator = activeStyle.Render(indicatorChar)
+			} else {
+				indicator = doneStyle.Render(indicatorChar)
+			}
+			lines = append(lines, fmt.Sprintf("%s %s", indicator, name))
 		}
-
-		lines = append(lines, lineContent)
 	}
 
 	return strings.Join(lines, "\n")
