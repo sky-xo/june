@@ -639,13 +639,16 @@ func formatTranscript(entries []claude.Entry, width int) string {
 			}
 			content := strings.TrimSpace(e.TextContent())
 			if content != "" {
+				// Add blank line before user prompts (when following assistant content)
+				if len(lines) > 1 {
+					lines = append(lines, "")
+				}
 				// Use a colored half-block on the right as visual indicator
 				bar := promptBarStyle.Render("▐")
 				contentLines := strings.Split(content, "\n")
 				for _, line := range contentLines {
 					lines = append(lines, bar+promptStyle.Render(" "+strings.TrimRight(line, " ")))
 				}
-				lines = append(lines, "")
 				lastWasText = true
 			}
 		case "assistant":
