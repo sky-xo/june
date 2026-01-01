@@ -178,6 +178,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Scroll transcript
 				m.viewport.LineDown(1)
 			}
+		case "u":
+			if m.focusedPanel == panelLeft {
+				// Page up in agent list
+				_, _, _, contentHeight := m.layout()
+				pageSize := contentHeight / 2
+				if pageSize < 1 {
+					pageSize = 1
+				}
+				m.sidebarOffset -= pageSize
+				if m.sidebarOffset < 0 {
+					m.sidebarOffset = 0
+				}
+			} else {
+				m.viewport.HalfViewUp()
+			}
+		case "d":
+			if m.focusedPanel == panelLeft {
+				// Page down in agent list
+				_, _, _, contentHeight := m.layout()
+				pageSize := contentHeight / 2
+				if pageSize < 1 {
+					pageSize = 1
+				}
+				maxOffset := len(m.agents) - m.sidebarVisibleLines()
+				if maxOffset < 0 {
+					maxOffset = 0
+				}
+				m.sidebarOffset += pageSize
+				if m.sidebarOffset > maxOffset {
+					m.sidebarOffset = maxOffset
+				}
+			} else {
+				m.viewport.HalfViewDown()
+			}
 		case "g":
 			m.viewport.GotoTop()
 		case "G":
@@ -358,7 +392,7 @@ func (m Model) View() string {
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
 	// Status bar
-	status := statusBarStyle.Render("Tab: switch panel | j/k: navigate/scroll | g/G: top/bottom | q: quit")
+	status := statusBarStyle.Render("Tab: switch | j/k: navigate | u/d: page | g/G: top/bottom | q: quit")
 
 	return lipgloss.JoinVertical(lipgloss.Left, panels, status)
 }
@@ -551,9 +585,6 @@ func formatTranscript(entries []claude.Entry) string {
 			}
 			content := e.TextContent()
 			if content != "" {
-				if len(content) > 200 {
-					content = content[:200] + "..."
-				}
 				lines = append(lines, promptStyle.Render("> "+content))
 				lines = append(lines, "")
 			}
@@ -561,9 +592,6 @@ func formatTranscript(entries []claude.Entry) string {
 			if tool := e.ToolName(); tool != "" {
 				lines = append(lines, toolStyle.Render("  "+tool))
 			} else if text := e.TextContent(); text != "" {
-				if len(text) > 500 {
-					text = text[:500] + "..."
-				}
 				lines = append(lines, text)
 				lines = append(lines, "")
 			}
