@@ -132,9 +132,7 @@ func highlightLine(line, filePath string) string {
 // highlightWithBackground applies syntax highlighting while preserving a background color.
 // The issue: chroma outputs ANSI reset codes (\x1b[0m) that clear all attributes including background.
 // This function re-applies the background after each reset sequence.
-// The targetWidth parameter specifies the total width to pad to (0 means no padding).
-// Padding is added BEFORE the final reset to maintain background color across the full width.
-func highlightWithBackground(line, filePath string, bgANSI string, targetWidth int) string {
+func highlightWithBackground(line, filePath string, bgANSI string) string {
 	highlighted := syntaxHighlight(line, filePath)
 	if highlighted == line {
 		// No highlighting applied, return as-is (caller will handle fallback styling)
@@ -145,14 +143,8 @@ func highlightWithBackground(line, filePath string, bgANSI string, targetWidth i
 	// \x1b[0m becomes \x1b[0m + bgANSI
 	result := strings.ReplaceAll(highlighted, "\x1b[0m", "\x1b[0m"+bgANSI)
 
-	// Calculate padding needed based on original line length (not ANSI-escaped length)
-	padding := ""
-	if targetWidth > 0 && len(line) < targetWidth {
-		padding = strings.Repeat(" ", targetWidth-len(line))
-	}
-
-	// Wrap the whole thing: start with background, add padding BEFORE reset, end with reset
-	return bgANSI + result + padding + "\x1b[0m"
+	// Wrap the whole thing: start with background, end with reset
+	return bgANSI + result + "\x1b[0m"
 }
 
 // ANSI background codes for diff lines (256-color mode approximations)

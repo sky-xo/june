@@ -1003,26 +1003,14 @@ func formatDiff(oldStr, newStr string, maxLen int, filePath string) []string {
 					} else {
 						bgANSI = ANSIBgDeleteLight
 					}
-					// Calculate available width for content (after "    " indent and prefix)
-					indentWidth := 4
-					prefixLen := len(prefix)
-					contentWidth := maxLen - indentWidth - prefixLen
-					if contentWidth < 0 {
-						contentWidth = 0
-					}
-					// Let highlightWithBackground handle padding BEFORE the final reset
-					// so background color extends across the full width
-					highlightedWithBg := highlightWithBackground(content, filePath, bgANSI, contentWidth)
+					// Apply syntax highlighting with background (no padding to avoid wrapping issues)
+					highlightedWithBg := highlightWithBackground(content, filePath, bgANSI)
 					if highlightedWithBg != content {
 						// Highlighting was applied - prefix gets same background, flows into content
 						styled = "    " + bgANSI + prefix + highlightedWithBg
 					} else {
 						// Fallback: no syntax highlighting available, use ANSI background directly
-						paddedContent := content
-						if len(paddedContent) < contentWidth {
-							paddedContent = paddedContent + strings.Repeat(" ", contentWidth-len(paddedContent))
-						}
-						styled = "    " + bgANSI + prefix + paddedContent + "\x1b[0m"
+						styled = "    " + bgANSI + prefix + content + "\x1b[0m"
 					}
 				} else {
 					// No filepath, use normal styling
@@ -1042,26 +1030,14 @@ func formatDiff(oldStr, newStr string, maxLen int, filePath string) []string {
 					} else {
 						bgANSI = ANSIBgInsertLight
 					}
-					// Calculate available width for content (after "    " indent and prefix)
-					indentWidth := 4
-					prefixLen := len(prefix)
-					contentWidth := maxLen - indentWidth - prefixLen
-					if contentWidth < 0 {
-						contentWidth = 0
-					}
-					// Let highlightWithBackground handle padding BEFORE the final reset
-					// so background color extends across the full width
-					highlightedWithBg := highlightWithBackground(content, filePath, bgANSI, contentWidth)
+					// Apply syntax highlighting with background (no padding to avoid wrapping issues)
+					highlightedWithBg := highlightWithBackground(content, filePath, bgANSI)
 					if highlightedWithBg != content {
 						// Highlighting was applied - prefix gets same background, flows into content
 						styled = "    " + bgANSI + prefix + highlightedWithBg
 					} else {
 						// Fallback: no syntax highlighting available, use ANSI background directly
-						paddedContent := content
-						if len(paddedContent) < contentWidth {
-							paddedContent = paddedContent + strings.Repeat(" ", contentWidth-len(paddedContent))
-						}
-						styled = "    " + bgANSI + prefix + paddedContent + "\x1b[0m"
+						styled = "    " + bgANSI + prefix + content + "\x1b[0m"
 					}
 				} else {
 					// No filepath, use normal styling
