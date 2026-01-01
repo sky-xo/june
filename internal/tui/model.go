@@ -626,8 +626,8 @@ func formatTranscript(entries []claude.Entry, width int) string {
 			}
 			content := strings.TrimSpace(e.TextContent())
 			if content != "" {
-				// Use a colored half-block on the left as visual indicator
-				bar := promptBarStyle.Render("▌")
+				// Use a colored half-block on the right as visual indicator
+				bar := promptBarStyle.Render("▐")
 				contentLines := strings.Split(content, "\n")
 				for _, line := range contentLines {
 					lines = append(lines, bar+promptStyle.Render(" "+strings.TrimRight(line, " ")))
