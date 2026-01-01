@@ -3,6 +3,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -17,16 +18,18 @@ import (
 const sidebarWidth = 23
 
 var (
-	activeStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // green
-	doneStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))  // gray
-	selectedBgStyle = lipgloss.NewStyle().Background(lipgloss.Color("8"))  // highlighted background
-	promptStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true) // cyan, bold
-	promptBarStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))           // cyan foreground for half-block indicator
-	toolStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	statusBarStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	// AdaptiveColor: Light = color on light bg, Dark = color on dark bg
+	activeStyle     = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "2", Dark: "10"})  // green
+	doneStyle       = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "243", Dark: "8"}) // gray
+	selectedBgStyle = lipgloss.NewStyle().Background(lipgloss.AdaptiveColor{Light: "254", Dark: "8"}) // highlighted background
+	promptStyle     = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "4", Dark: "6"}).Bold(true) // blue/cyan, bold
+	promptBarStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "4", Dark: "6"})            // blue/cyan for half-block
+	toolStyle       = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#2E7D32", Dark: "#C8FB9E"}) // lime green (matches focused border)
+	toolDimStyle    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "243", Dark: "240"})        // dim gray for command details
+	statusBarStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "243", Dark: "8"})          // gray
 
-	focusedBorderColor   = lipgloss.Color("#C8FB9E") // Pale lime green
-	unfocusedBorderColor = lipgloss.Color("8") // Dim
+	focusedBorderColor   = lipgloss.AdaptiveColor{Light: "#2E7D32", Dark: "#C8FB9E"} // green (darker on light, pale on dark)
+	unfocusedBorderColor = lipgloss.AdaptiveColor{Light: "243", Dark: "8"}           // gray
 )
 
 // Panel focus
@@ -495,11 +498,12 @@ func (m Model) renderSidebarContent(width, height int) string {
 
 		if i == m.selectedIdx {
 			// For selected row: apply background to entire row but keep indicator color
+			selectedBg := lipgloss.AdaptiveColor{Light: "254", Dark: "8"}
 			var styledIndicator string
 			if agent.IsActive() {
-				styledIndicator = activeStyle.Background(lipgloss.Color("8")).Render(indicatorChar)
+				styledIndicator = activeStyle.Background(selectedBg).Render(indicatorChar)
 			} else {
-				styledIndicator = doneStyle.Background(lipgloss.Color("8")).Render(indicatorChar)
+				styledIndicator = doneStyle.Background(selectedBg).Render(indicatorChar)
 			}
 			// Build the rest with background
 			rest := fmt.Sprintf(" %s", name)
@@ -533,7 +537,7 @@ func (m Model) renderSidebarContent(width, height int) string {
 // renderPanelWithTitle renders a panel with the title embedded in the top border
 // like: ╭─ Title ────────╮
 // This is copied from the old working TUI code.
-func renderPanelWithTitle(title, content string, width, height int, borderColor lipgloss.Color) string {
+func renderPanelWithTitle(title, content string, width, height int, borderColor lipgloss.TerminalColor) string {
 	// Border characters (rounded)
 	topLeft := "╭"
 	topRight := "╮"
@@ -637,7 +641,8 @@ func formatTranscript(entries []claude.Entry, width int) string {
 			}
 		case "assistant":
 			if tool := e.ToolName(); tool != "" {
-				lines = append(lines, toolStyle.Render("  "+tool))
+				toolLines := formatToolUse(e, tool, width)
+				lines = append(lines, toolLines...)
 			} else if text := e.TextContent(); text != "" {
 				rendered := renderMarkdown(text, width)
 				lines = append(lines, rendered)
@@ -647,14 +652,88 @@ func formatTranscript(entries []claude.Entry, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-// renderMarkdown renders markdown text using glamour with a dark terminal style.
+// formatToolUse formats a tool use entry, with special handling for Bash commands.
+func formatToolUse(e claude.Entry, toolName string, width int) []string {
+	var result []string
+	maxLen := width - 4 // leave room for "  " prefix and some padding
+
+	// Special handling for Bash: show description + dimmed command
+	if toolName == "Bash" {
+		input := e.ToolInput()
+		desc, _ := input["description"].(string)
+		cmd, _ := input["command"].(string)
+
+		if desc != "" {
+			// Show description in lime green
+			line := "Bash: " + desc
+			if maxLen > 0 && len(line) > maxLen {
+				line = line[:maxLen-3] + "..."
+			}
+			result = append(result, toolStyle.Render("  "+line))
+
+			// Show command dimmed below if present
+			if cmd != "" {
+				// Take first line only
+				if idx := strings.Index(cmd, "\n"); idx != -1 {
+					cmd = cmd[:idx] + "..."
+				}
+				if maxLen > 0 && len(cmd) > maxLen {
+					cmd = cmd[:maxLen-3] + "..."
+				}
+				result = append(result, toolDimStyle.Render("    "+cmd))
+			}
+			return result
+		}
+
+		// No description, just show command
+		if cmd != "" {
+			if idx := strings.Index(cmd, "\n"); idx != -1 {
+				cmd = cmd[:idx] + "..."
+			}
+			line := "Bash: " + cmd
+			if maxLen > 0 && len(line) > maxLen {
+				line = line[:maxLen-3] + "..."
+			}
+			result = append(result, toolStyle.Render("  "+line))
+			return result
+		}
+	}
+
+	// Default: use ToolSummary for other tools
+	summary := e.ToolSummary()
+	if maxLen > 0 && len(summary) > maxLen {
+		summary = summary[:maxLen-3] + "..."
+	}
+	result = append(result, toolStyle.Render("  "+summary))
+	return result
+}
+
+// getGlamourStyle returns the appropriate glamour style for markdown rendering.
+// It checks GLAMOUR_STYLE env var first, then auto-detects based on terminal background.
+// Falls back to "dark" if no TTY is detected (e.g., in tests) to ensure markdown is processed.
+func getGlamourStyle() glamour.TermRendererOption {
+	// First check if user has set GLAMOUR_STYLE env var
+	if style := os.Getenv("GLAMOUR_STYLE"); style != "" {
+		return glamour.WithStylePath(style)
+	}
+
+	// Use lipgloss to detect terminal background color.
+	// lipgloss.HasDarkBackground() returns true for dark terminals, false for light,
+	// and defaults to true when no TTY is detected (which is what we want for tests).
+	if lipgloss.HasDarkBackground() {
+		return glamour.WithStylePath("dark")
+	}
+	return glamour.WithStylePath("light")
+}
+
+// renderMarkdown renders markdown text using glamour with auto-detected terminal style.
 func renderMarkdown(text string, width int) string {
 	if width <= 0 {
 		width = 80 // default width
 	}
 
 	r, err := glamour.NewTermRenderer(
-		glamour.WithStylePath("dark"),
+		getGlamourStyle(),
 		glamour.WithWordWrap(width),
 	)
 	if err != nil {

@@ -26,10 +26,9 @@ The core viewer is working. See `docs/plans/2026-01-01-subagent-viewer-mvp.md` f
 
 ## Future Ideas
 
-- **Task summary in sidebar** - Show first prompt snippet instead of just agent ID
-- **Richer tool display** - Show tool name + brief input summary
-- **Collapsible sections** - Collapse long outputs
 - **Agent naming** - Extract task description from first user message
+- **Selection mode** - Click and drag in content area to select text for copy/paste
+- **Show tool details** - Display actual commands/paths instead of just "Bash" or "Read" (e.g., `Bash: git status`, `Read: src/main.go`)
 
 ## Docs
 
