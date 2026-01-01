@@ -21,7 +21,7 @@ var (
 	doneStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))  // gray
 	selectedBgStyle = lipgloss.NewStyle().Background(lipgloss.Color("8"))  // highlighted background
 	promptStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true) // cyan, bold
-	promptBarStyle  = lipgloss.NewStyle().Background(lipgloss.Color("6"))           // cyan background for left indicator
+	promptBarStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))           // cyan foreground for half-block indicator
 	toolStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 	statusBarStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 
