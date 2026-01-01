@@ -762,3 +762,26 @@ func TestUpdate_KKeyInMiddleOfSidebar_DoesNotScrollContent(t *testing.T) {
 		t.Errorf("Selection should have moved up from 2 to 1, got %d", updatedModel.selectedIdx)
 	}
 }
+
+func TestRenderSidebarShowsDescription(t *testing.T) {
+	m := Model{
+		agents: []claude.Agent{
+			{ID: "abc123", Description: "Fix login bug"},
+			{ID: "def456", Description: ""},
+		},
+		width:  80,
+		height: 24,
+	}
+
+	content := m.renderSidebarContent(20, 10)
+
+	// Should show description when available
+	if !strings.Contains(content, "Fix login bug") {
+		t.Errorf("expected sidebar to contain description, got: %s", content)
+	}
+
+	// Should fall back to ID when no description
+	if !strings.Contains(content, "def456") {
+		t.Errorf("expected sidebar to contain agent ID when no description, got: %s", content)
+	}
+}

@@ -541,7 +541,11 @@ func (m Model) renderSidebarContent(width, height int) string {
 			indicatorChar = "\u25cf"
 		}
 
-		name := agent.ID
+		// Use description if available, otherwise fall back to ID
+		name := agent.Description
+		if name == "" {
+			name = agent.ID
+		}
 		maxNameLen := width - 3 // indicator + space + name
 		if len(name) > maxNameLen {
 			name = name[:maxNameLen]
