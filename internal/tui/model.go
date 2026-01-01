@@ -39,12 +39,13 @@ type Model struct {
 	agents      []claude.Agent            // List of agents
 	transcripts map[string][]claude.Entry // Agent ID -> transcript entries
 
-	selectedIdx  int // Currently selected agent index
-	focusedPanel int // Which panel has focus (panelLeft or panelRight)
-	width        int
-	height       int
-	viewport     viewport.Model
-	err          error
+	selectedIdx   int // Currently selected agent index
+	sidebarOffset int // Scroll offset for the sidebar (index of first visible agent)
+	focusedPanel  int // Which panel has focus (panelLeft or panelRight)
+	width         int
+	height        int
+	viewport      viewport.Model
+	err           error
 }
 
 // NewModel creates a new TUI model.
@@ -63,6 +64,66 @@ func (m Model) SelectedAgent() *claude.Agent {
 		return nil
 	}
 	return &m.agents[m.selectedIdx]
+}
+
+// sidebarVisibleLines returns how many agent lines can be displayed in the sidebar,
+// accounting for scroll indicators if they would be shown.
+func (m Model) sidebarVisibleLines() int {
+	_, _, _, contentHeight := m.layout()
+	if contentHeight <= 0 {
+		return 0
+	}
+
+	lines := contentHeight
+	// Reserve space for top indicator if scrolled down
+	if m.sidebarOffset > 0 {
+		lines--
+	}
+	// Reserve space for bottom indicator if there are more agents below
+	endIdx := m.sidebarOffset + lines
+	if endIdx < len(m.agents) {
+		lines--
+	}
+	if lines < 0 {
+		lines = 0
+	}
+	return lines
+}
+
+// ensureSelectedVisible adjusts sidebarOffset to keep selectedIdx visible.
+func (m *Model) ensureSelectedVisible() {
+	if len(m.agents) == 0 {
+		return
+	}
+
+	_, _, _, contentHeight := m.layout()
+	if contentHeight <= 0 {
+		return
+	}
+
+	// If selection is above the visible area, scroll up
+	if m.selectedIdx < m.sidebarOffset {
+		m.sidebarOffset = m.selectedIdx
+		return
+	}
+
+	// If selection is below the visible area, scroll down
+	// We need to iterate because changing offset affects visible lines
+	// (due to scroll indicators taking space)
+	for {
+		visibleLines := m.sidebarVisibleLines()
+		if visibleLines <= 0 {
+			break
+		}
+
+		if m.selectedIdx >= m.sidebarOffset+visibleLines {
+			// Selected item is below visible area, scroll down
+			m.sidebarOffset++
+		} else {
+			// Selected item is now visible
+			break
+		}
+	}
 }
 
 // Init initializes the model.
@@ -94,6 +155,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Navigate agent list
 				if m.selectedIdx > 0 {
 					m.selectedIdx--
+					m.ensureSelectedVisible()
 					if agent := m.SelectedAgent(); agent != nil {
 						cmds = append(cmds, loadTranscriptCmd(*agent))
 					}
@@ -107,6 +169,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Navigate agent list
 				if m.selectedIdx < len(m.agents)-1 {
 					m.selectedIdx++
+					m.ensureSelectedVisible()
 					if agent := m.SelectedAgent(); agent != nil {
 						cmds = append(cmds, loadTranscriptCmd(*agent))
 					}
@@ -125,15 +188,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		leftWidth, _, _, _ := m.layout()
 		inLeftPanel := msg.X < leftWidth
 
-		// Handle scroll wheel in right panel
-		if !inLeftPanel && msg.Action == tea.MouseActionPress {
+		// Handle scroll wheel
+		if msg.Action == tea.MouseActionPress {
 			switch msg.Button {
 			case tea.MouseButtonWheelUp:
-				m.viewport.LineUp(3)
-				return m, nil
+				if inLeftPanel {
+					// Scroll sidebar up by 1 line
+					if m.sidebarOffset > 0 {
+						m.sidebarOffset--
+					}
+					return m, nil
+				} else {
+					m.viewport.LineUp(3)
+					return m, nil
+				}
 			case tea.MouseButtonWheelDown:
-				m.viewport.LineDown(3)
-				return m, nil
+				if inLeftPanel {
+					// Scroll sidebar down by 1 line
+					maxOffset := len(m.agents) - m.sidebarVisibleLines()
+					if maxOffset < 0 {
+						maxOffset = 0
+					}
+					if m.sidebarOffset < maxOffset {
+						m.sidebarOffset++
+					}
+					return m, nil
+				} else {
+					m.viewport.LineDown(3)
+					return m, nil
+				}
 			}
 		}
 
@@ -141,11 +224,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if inLeftPanel && msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionRelease {
 			// Calculate which agent was clicked
 			// Subtract 1 for top border
-			clickedIndex := msg.Y - 1
-			if clickedIndex >= 0 && clickedIndex < len(m.agents) {
-				m.selectedIdx = clickedIndex
-				if agent := m.SelectedAgent(); agent != nil {
-					cmds = append(cmds, loadTranscriptCmd(*agent))
+			clickY := msg.Y - 1
+
+			// Account for top scroll indicator if present
+			if m.sidebarOffset > 0 {
+				clickY-- // First line is the "N more" indicator
+			}
+
+			// Convert to agent index, but only within visible range
+			visibleLines := m.sidebarVisibleLines()
+			if clickY >= 0 && clickY < visibleLines {
+				agentIdx := m.sidebarOffset + clickY
+				if agentIdx >= 0 && agentIdx < len(m.agents) {
+					m.selectedIdx = agentIdx
+					if agent := m.SelectedAgent(); agent != nil {
+						cmds = append(cmds, loadTranscriptCmd(*agent))
+					}
 				}
 			}
 		}
@@ -278,17 +372,54 @@ func (m Model) renderSidebarContent(width, height int) string {
 		return "No agents found"
 	}
 
-	var lines []string
-	for i, agent := range m.agents {
-		if len(lines) >= height {
-			break
+	// Calculate how many agents are hidden above and below
+	hiddenAbove := m.sidebarOffset
+	totalAgents := len(m.agents)
+
+	// Calculate available lines for agents (reserve lines for indicators if needed)
+	availableLines := height
+	showTopIndicator := hiddenAbove > 0
+	if showTopIndicator {
+		availableLines--
+	}
+
+	// Calculate how many agents we can show
+	visibleEnd := m.sidebarOffset + availableLines
+	if visibleEnd > totalAgents {
+		visibleEnd = totalAgents
+	}
+
+	hiddenBelow := totalAgents - visibleEnd
+	showBottomIndicator := hiddenBelow > 0
+	if showBottomIndicator && availableLines > 0 {
+		availableLines--
+		visibleEnd = m.sidebarOffset + availableLines
+		if visibleEnd > totalAgents {
+			visibleEnd = totalAgents
 		}
+		hiddenBelow = totalAgents - visibleEnd
+	}
+
+	var lines []string
+
+	// Top scroll indicator
+	if showTopIndicator {
+		indicator := fmt.Sprintf("\u2191 %d more", hiddenAbove)
+		if len(indicator) > width {
+			indicator = indicator[:width]
+		}
+		lines = append(lines, doneStyle.Render(indicator))
+	}
+
+	// Render visible agents
+	for i := m.sidebarOffset; i < visibleEnd; i++ {
+		agent := m.agents[i]
 
 		// Determine indicator (without styling for selected row)
 		var indicator string
-		indicatorChar := "✓"
+		indicatorChar := "\u2713"
 		if agent.IsActive() {
-			indicatorChar = "●"
+			indicatorChar = "\u25cf"
 		}
 
 		name := agent.ID
@@ -314,6 +445,15 @@ func (m Model) renderSidebarContent(width, height int) string {
 			}
 			lines = append(lines, fmt.Sprintf("%s %s", indicator, name))
 		}
+	}
+
+	// Bottom scroll indicator
+	if showBottomIndicator {
+		indicator := fmt.Sprintf("\u2193 %d more", hiddenBelow)
+		if len(indicator) > width {
+			indicator = indicator[:width]
+		}
+		lines = append(lines, doneStyle.Render(indicator))
 	}
 
 	return strings.Join(lines, "\n")

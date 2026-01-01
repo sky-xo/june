@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
+
+	"june/internal/claude"
 )
 
 func TestFormatTimestamp(t *testing.T) {
@@ -134,4 +137,211 @@ func searchString(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// createTestAgents creates N test agents for testing
+func createTestAgents(n int) []claude.Agent {
+	agents := make([]claude.Agent, n)
+	for i := 0; i < n; i++ {
+		agents[i] = claude.Agent{
+			ID:       "agent" + string(rune('A'+i)),
+			FilePath: "/test/agent-" + string(rune('A'+i)) + ".jsonl",
+			LastMod:  time.Now().Add(-time.Duration(i) * time.Hour),
+		}
+	}
+	return agents
+}
+
+// createModelWithAgents creates a model with the given agents and dimensions
+func createModelWithAgents(agents []claude.Agent, width, height int) Model {
+	m := NewModel("/test")
+	m.agents = agents
+	m.width = width
+	m.height = height
+	return m
+}
+
+func TestRenderSidebarContent_NoScroll(t *testing.T) {
+	// Test that when all agents fit, no scroll indicators are shown
+	agents := createTestAgents(3)
+	m := createModelWithAgents(agents, 25, 20) // Height 20 = plenty of room
+
+	content := m.renderSidebarContent(20, 10) // 10 lines, 3 agents
+
+	// Should not have scroll indicators
+	if strings.Contains(content, "more") {
+		t.Errorf("Expected no scroll indicators, but got: %s", content)
+	}
+
+	// Should contain all agent IDs
+	for _, agent := range agents {
+		if !strings.Contains(content, agent.ID) {
+			t.Errorf("Expected to find agent %s in content: %s", agent.ID, content)
+		}
+	}
+}
+
+func TestRenderSidebarContent_ShowsBottomIndicator(t *testing.T) {
+	// Test that bottom indicator shows when more agents are below
+	agents := createTestAgents(10)
+	m := createModelWithAgents(agents, 25, 10)
+	m.sidebarOffset = 0
+
+	content := m.renderSidebarContent(20, 5) // Only 5 lines available
+
+	// Should show bottom indicator
+	if !strings.Contains(content, "more") {
+		t.Errorf("Expected bottom scroll indicator, but got: %s", content)
+	}
+
+	// Should show downward arrow
+	if !strings.Contains(content, "\u2193") {
+		t.Errorf("Expected downward arrow indicator, but got: %s", content)
+	}
+}
+
+func TestRenderSidebarContent_ShowsTopIndicator(t *testing.T) {
+	// Test that top indicator shows when scrolled down
+	agents := createTestAgents(10)
+	m := createModelWithAgents(agents, 25, 10)
+	m.sidebarOffset = 3 // Scrolled down by 3
+
+	content := m.renderSidebarContent(20, 10)
+
+	// Should show top indicator with "3 more"
+	if !strings.Contains(content, "3 more") {
+		t.Errorf("Expected '3 more' in top indicator, but got: %s", content)
+	}
+
+	// Should show upward arrow
+	if !strings.Contains(content, "\u2191") {
+		t.Errorf("Expected upward arrow indicator, but got: %s", content)
+	}
+}
+
+func TestRenderSidebarContent_ShowsBothIndicators(t *testing.T) {
+	// Test that both indicators show when in the middle of a long list
+	agents := createTestAgents(20)
+	m := createModelWithAgents(agents, 25, 10)
+	m.sidebarOffset = 5 // Scrolled to middle
+
+	content := m.renderSidebarContent(20, 5) // Small height to force both indicators
+
+	// Should show top indicator
+	if !strings.Contains(content, "\u2191") {
+		t.Errorf("Expected top scroll indicator, but got: %s", content)
+	}
+
+	// Should show bottom indicator
+	if !strings.Contains(content, "\u2193") {
+		t.Errorf("Expected bottom scroll indicator, but got: %s", content)
+	}
+}
+
+func TestEnsureSelectedVisible_ScrollsDown(t *testing.T) {
+	// Test that selecting an item below the visible area scrolls down
+	agents := createTestAgents(20)
+	m := createModelWithAgents(agents, 25, 10) // Small height
+	m.sidebarOffset = 0
+	m.selectedIdx = 15 // Select item beyond visible range
+
+	m.ensureSelectedVisible()
+
+	// Offset should have increased to show selected item
+	if m.sidebarOffset == 0 {
+		t.Error("Expected sidebarOffset to increase when selecting item below visible range")
+	}
+
+	// Selected item should now be visible
+	visibleStart := m.sidebarOffset
+	visibleEnd := m.sidebarOffset + m.sidebarVisibleLines()
+	if m.selectedIdx < visibleStart || m.selectedIdx >= visibleEnd {
+		t.Errorf("Selected item %d should be visible in range [%d, %d)", m.selectedIdx, visibleStart, visibleEnd)
+	}
+}
+
+func TestEnsureSelectedVisible_ScrollsUp(t *testing.T) {
+	// Test that selecting an item above the visible area scrolls up
+	agents := createTestAgents(20)
+	m := createModelWithAgents(agents, 25, 10)
+	m.sidebarOffset = 10 // Scrolled down
+	m.selectedIdx = 3    // Select item above visible range
+
+	m.ensureSelectedVisible()
+
+	// Offset should have decreased to show selected item
+	if m.sidebarOffset > 3 {
+		t.Errorf("Expected sidebarOffset to be at most 3, got %d", m.sidebarOffset)
+	}
+}
+
+func TestEnsureSelectedVisible_NoChangeWhenVisible(t *testing.T) {
+	// Test that offset doesn't change when item is already visible
+	agents := createTestAgents(20)
+	m := createModelWithAgents(agents, 25, 15)
+	m.sidebarOffset = 5
+	m.selectedIdx = 7 // Already in visible range
+
+	originalOffset := m.sidebarOffset
+	m.ensureSelectedVisible()
+
+	if m.sidebarOffset != originalOffset {
+		t.Errorf("Offset should not change when item is visible. Was %d, now %d", originalOffset, m.sidebarOffset)
+	}
+}
+
+func TestSidebarVisibleLines_NoIndicators(t *testing.T) {
+	// When offset is 0 and all items fit, no indicators are needed
+	agents := createTestAgents(3)
+	m := createModelWithAgents(agents, 25, 10)
+	m.sidebarOffset = 0
+
+	lines := m.sidebarVisibleLines()
+
+	// With height 10, panelHeight = 10-1 = 9, contentHeight = 9-2 = 7
+	// No indicators needed since 3 agents fit in 7 lines
+	if lines < 3 {
+		t.Errorf("Expected at least 3 visible lines for 3 agents, got %d", lines)
+	}
+}
+
+func TestSidebarVisibleLines_WithTopIndicator(t *testing.T) {
+	// When scrolled down, top indicator takes one line
+	agents := createTestAgents(20)
+	m := createModelWithAgents(agents, 25, 10)
+	m.sidebarOffset = 5
+
+	linesScrolled := m.sidebarVisibleLines()
+
+	// Reset offset and compare
+	m.sidebarOffset = 0
+	linesNotScrolled := m.sidebarVisibleLines()
+
+	// When scrolled, we lose one line to the top indicator
+	// (and possibly another to bottom indicator)
+	if linesScrolled >= linesNotScrolled {
+		t.Errorf("Expected fewer visible lines when scrolled (has top indicator). Scrolled: %d, Not scrolled: %d",
+			linesScrolled, linesNotScrolled)
+	}
+}
+
+func TestRenderSidebarContent_EmptyAgents(t *testing.T) {
+	m := createModelWithAgents(nil, 25, 10)
+
+	content := m.renderSidebarContent(20, 5)
+
+	if content != "No agents found" {
+		t.Errorf("Expected 'No agents found', got: %s", content)
+	}
+}
+
+func TestRenderSidebarContent_ZeroHeight(t *testing.T) {
+	agents := createTestAgents(5)
+	m := createModelWithAgents(agents, 25, 10)
+
+	content := m.renderSidebarContent(20, 0)
+
+	if content != "No agents found" {
+		t.Errorf("Expected 'No agents found' for zero height, got: %s", content)
+	}
 }
