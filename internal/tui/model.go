@@ -827,7 +827,7 @@ func formatToolUse(e claude.Entry, toolName string, width int) []string {
 					style = activeStyle
 				default: // pending
 					indicator = "\u2610" // empty box
-					style = toolDimStyle
+					style = lipgloss.NewStyle() // normal text color (white-ish)
 				}
 
 				// Truncate content if needed
