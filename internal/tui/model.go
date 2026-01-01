@@ -872,6 +872,20 @@ func formatDiff(oldStr, newStr string, maxLen int, filePath string) []string {
 		return result
 	}
 
+	// Calculate max line number width for consistent alignment
+	maxLineNum := 0
+	for _, hunk := range hunks {
+		for _, d := range hunk.Lines {
+			if d.OldLineNum > maxLineNum {
+				maxLineNum = d.OldLineNum
+			}
+			if d.NewLineNum > maxLineNum {
+				maxLineNum = d.NewLineNum
+			}
+		}
+	}
+	lineNumWidth := len(fmt.Sprintf("%d", maxLineNum))
+
 	lineCount := 0
 	truncated := false
 
@@ -906,14 +920,14 @@ func formatDiff(oldStr, newStr string, maxLen int, filePath string) []string {
 			switch d.Op {
 			case DiffEqual:
 				// Context line: show line number, dim style (no syntax highlighting)
-				display = fmt.Sprintf("%d   %s", lineNum, content)
+				display = fmt.Sprintf("%*d   %s", lineNumWidth, lineNum, content)
 				if maxLen > 0 && len(display) > maxLen {
 					display = display[:maxLen-3] + "..."
 				}
 				styled = toolDimStyle.Render("    " + display)
 			case DiffDelete:
 				// Deletion: show with "-" marker, apply syntax highlighting
-				prefix := fmt.Sprintf("%d - ", lineNum)
+				prefix := fmt.Sprintf("%*d - ", lineNumWidth, lineNum)
 				if filePath != "" {
 					var bgANSI string
 					if lipgloss.HasDarkBackground() {
@@ -943,7 +957,7 @@ func formatDiff(oldStr, newStr string, maxLen int, filePath string) []string {
 				}
 			case DiffInsert:
 				// Addition: show with "+" marker, apply syntax highlighting
-				prefix := fmt.Sprintf("%d + ", lineNum)
+				prefix := fmt.Sprintf("%*d + ", lineNumWidth, lineNum)
 				if filePath != "" {
 					var bgANSI string
 					if lipgloss.HasDarkBackground() {
