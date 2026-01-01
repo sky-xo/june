@@ -345,3 +345,111 @@ func TestRenderSidebarContent_ZeroHeight(t *testing.T) {
 		t.Errorf("Expected 'No agents found' for zero height, got: %s", content)
 	}
 }
+
+// stripANSI removes ANSI escape codes from a string for easier test assertions
+func stripANSI(s string) string {
+	// Simple regex-free approach: remove escape sequences
+	var result strings.Builder
+	inEscape := false
+	for _, r := range s {
+		if r == '\x1b' {
+			inEscape = true
+			continue
+		}
+		if inEscape {
+			if r == 'm' {
+				inEscape = false
+			}
+			continue
+		}
+		result.WriteRune(r)
+	}
+	return result.String()
+}
+
+func TestRenderMarkdown_BasicFormatting(t *testing.T) {
+	// Test that markdown is rendered (not plain text with asterisks)
+	input := "This is **bold** text"
+	result := renderMarkdown(input, 80)
+
+	// The rendered output should NOT contain the literal asterisks
+	if strings.Contains(result, "**bold**") {
+		t.Errorf("Expected markdown to be rendered, but found literal asterisks: %s", result)
+	}
+
+	// It should contain ANSI codes (proof that styling was applied)
+	if !strings.Contains(result, "\x1b[") {
+		t.Errorf("Expected ANSI codes in rendered output: %s", result)
+	}
+
+	// Strip ANSI and verify the word "bold" is present
+	stripped := stripANSI(result)
+	if !strings.Contains(stripped, "bold") {
+		t.Errorf("Expected 'bold' to be in output: %s", stripped)
+	}
+}
+
+func TestRenderMarkdown_PreservesContent(t *testing.T) {
+	// Test that plain text content is preserved (after stripping ANSI)
+	input := "Just plain text here"
+	result := renderMarkdown(input, 80)
+
+	stripped := stripANSI(result)
+	if !strings.Contains(stripped, "Just plain text here") {
+		t.Errorf("Expected plain text to be preserved: %s (stripped: %s)", result, stripped)
+	}
+}
+
+func TestRenderMarkdown_ZeroWidth(t *testing.T) {
+	// Test that zero width defaults to 80
+	input := "Some text"
+	result := renderMarkdown(input, 0)
+
+	// Should not panic and should contain the text (after stripping ANSI)
+	stripped := stripANSI(result)
+	if !strings.Contains(stripped, "Some text") {
+		t.Errorf("Expected text to be present: %s (stripped: %s)", result, stripped)
+	}
+}
+
+func TestFormatTranscript_UserPromptStyle(t *testing.T) {
+	// Test that user prompts are styled with > prefix
+	entries := []claude.Entry{
+		{Type: "user", Message: claude.Message{
+			Content: "Hello there",
+		}},
+	}
+
+	result := formatTranscript(entries, 80)
+
+	// User prompts should have the > prefix
+	if !strings.Contains(result, ">") {
+		t.Errorf("Expected user prompt to have '>' prefix: %s", result)
+	}
+}
+
+func TestFormatTranscript_AssistantMarkdownRendered(t *testing.T) {
+	// Test that assistant markdown content is rendered
+	entries := []claude.Entry{
+		{Type: "assistant", Message: claude.Message{
+			Content: []interface{}{
+				map[string]interface{}{
+					"type": "text",
+					"text": "Here is **bold** text",
+				},
+			},
+		}},
+	}
+
+	result := formatTranscript(entries, 80)
+
+	// Should not contain literal asterisks
+	if strings.Contains(result, "**bold**") {
+		t.Errorf("Expected markdown to be rendered, but found literal asterisks: %s", result)
+	}
+
+	// Should contain the word bold
+	if !strings.Contains(result, "bold") {
+		t.Errorf("Expected 'bold' to be present: %s", result)
+	}
+}

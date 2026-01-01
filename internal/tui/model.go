@@ -10,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -326,12 +327,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case transcriptMsg:
-		// Only scroll to bottom if this is a NEW agent selection (not a refresh)
+		// Check if we were at the bottom BEFORE updating content
+		wasAtBottom := m.viewport.AtBottom()
 		_, hadTranscript := m.transcripts[msg.agentID]
 		m.transcripts[msg.agentID] = msg.entries
 		m.updateViewport()
-		if !hadTranscript {
-			// First time loading this agent - scroll to bottom
+		if !hadTranscript || wasAtBottom {
+			// First time loading OR was following at bottom - keep at bottom
 			m.viewport.GotoBottom()
 		}
 
@@ -362,7 +364,7 @@ func (m *Model) updateViewport() {
 		return
 	}
 	entries := m.transcripts[agent.ID]
-	m.viewport.SetContent(formatTranscript(entries))
+	m.viewport.SetContent(formatTranscript(entries, m.viewport.Width))
 }
 
 // layout calculates panel dimensions
@@ -606,7 +608,7 @@ func renderPanelWithTitle(title, content string, width, height int, borderColor 
 	return strings.Join(allLines, "\n")
 }
 
-func formatTranscript(entries []claude.Entry) string {
+func formatTranscript(entries []claude.Entry, width int) string {
 	var lines []string
 
 	for _, e := range entries {
@@ -624,12 +626,37 @@ func formatTranscript(entries []claude.Entry) string {
 			if tool := e.ToolName(); tool != "" {
 				lines = append(lines, toolStyle.Render("  "+tool))
 			} else if text := e.TextContent(); text != "" {
-				lines = append(lines, text)
-				lines = append(lines, "")
+				rendered := renderMarkdown(text, width)
+				lines = append(lines, rendered)
 			}
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// renderMarkdown renders markdown text using glamour with a dark terminal style.
+func renderMarkdown(text string, width int) string {
+	if width <= 0 {
+		width = 80 // default width
+	}
+
+	r, err := glamour.NewTermRenderer(
+		glamour.WithStylePath("dark"),
+		glamour.WithWordWrap(width),
+	)
+	if err != nil {
+		// If renderer creation fails, return plain text
+		return text
+	}
+
+	rendered, err := r.Render(text)
+	if err != nil {
+		// If rendering fails, return plain text
+		return text
+	}
+
+	// glamour adds trailing newlines, trim them to avoid extra spacing
+	return strings.TrimRight(rendered, "\n")
 }
 
 // formatTimestamp formats a timestamp intelligently based on how recent it is:
