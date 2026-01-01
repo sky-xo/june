@@ -493,13 +493,19 @@ func (m Model) renderSidebarContent(width, height int) string {
 		}
 
 		if i == m.selectedIdx {
-			// For selected row: render plain text, pad to full width, then apply background to entire row
-			lineContent := fmt.Sprintf("%s %s", indicatorChar, name)
-			// Pad to full width so background spans entire row
-			if len(lineContent) < width {
-				lineContent = lineContent + strings.Repeat(" ", width-len(lineContent))
+			// For selected row: apply background to entire row but keep indicator color
+			var styledIndicator string
+			if agent.IsActive() {
+				styledIndicator = activeStyle.Background(lipgloss.Color("8")).Render(indicatorChar)
+			} else {
+				styledIndicator = doneStyle.Background(lipgloss.Color("8")).Render(indicatorChar)
 			}
-			lines = append(lines, selectedBgStyle.Render(lineContent))
+			// Build the rest with background
+			rest := fmt.Sprintf(" %s", name)
+			if len(indicatorChar)+len(rest) < width {
+				rest = rest + strings.Repeat(" ", width-len(indicatorChar)-len(rest))
+			}
+			lines = append(lines, styledIndicator+selectedBgStyle.Render(rest))
 		} else {
 			// For non-selected: apply color to indicator only
 			if agent.IsActive() {
