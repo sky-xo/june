@@ -180,7 +180,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "u":
 			if m.focusedPanel == panelLeft {
-				// Page up in agent list
+				// Page up in agent list (vim-style: selection stays at same visual row)
+				visualRow := m.selectedIdx - m.sidebarOffset
 				_, _, _, contentHeight := m.layout()
 				pageSize := contentHeight / 2
 				if pageSize < 1 {
@@ -190,12 +191,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.sidebarOffset < 0 {
 					m.sidebarOffset = 0
 				}
+				// Keep selection at same visual position
+				m.selectedIdx = m.sidebarOffset + visualRow
+				if m.selectedIdx < 0 {
+					m.selectedIdx = 0
+				}
+				if m.selectedIdx >= len(m.agents) {
+					m.selectedIdx = len(m.agents) - 1
+				}
+				if agent := m.SelectedAgent(); agent != nil {
+					cmds = append(cmds, loadTranscriptCmd(*agent))
+				}
+				return m, tea.Batch(cmds...)
 			} else {
 				m.viewport.HalfViewUp()
 			}
 		case "d":
 			if m.focusedPanel == panelLeft {
-				// Page down in agent list
+				// Page down in agent list (vim-style: selection stays at same visual row)
+				visualRow := m.selectedIdx - m.sidebarOffset
 				_, _, _, contentHeight := m.layout()
 				pageSize := contentHeight / 2
 				if pageSize < 1 {
@@ -209,6 +223,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.sidebarOffset > maxOffset {
 					m.sidebarOffset = maxOffset
 				}
+				// Keep selection at same visual position
+				m.selectedIdx = m.sidebarOffset + visualRow
+				if m.selectedIdx < 0 {
+					m.selectedIdx = 0
+				}
+				if m.selectedIdx >= len(m.agents) {
+					m.selectedIdx = len(m.agents) - 1
+				}
+				if agent := m.SelectedAgent(); agent != nil {
+					cmds = append(cmds, loadTranscriptCmd(*agent))
+				}
+				return m, tea.Batch(cmds...)
 			} else {
 				m.viewport.HalfViewDown()
 			}
