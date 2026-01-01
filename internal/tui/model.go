@@ -157,9 +157,13 @@ func (m Model) View() string {
 	// Left panel: agent list
 	sidebar := m.renderSidebar()
 
-	// Separator
+	// Separator - build as lines to match sidebar/content panel line count
 	sepStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	separator := strings.Repeat(sepStyle.Render("│")+"\n", m.height)
+	var sepLines []string
+	for i := 0; i < m.height; i++ {
+		sepLines = append(sepLines, sepStyle.Render("│"))
+	}
+	separator := strings.Join(sepLines, "\n")
 
 	// Right panel: transcript
 	var title string
@@ -206,6 +210,14 @@ func (m Model) renderSidebar() string {
 	// Pad to height
 	for len(lines) < m.height {
 		lines = append(lines, "")
+	}
+
+	// Pad each line to sidebarWidth for proper horizontal joining
+	for i, line := range lines {
+		lineWidth := lipgloss.Width(line)
+		if lineWidth < sidebarWidth {
+			lines[i] = line + strings.Repeat(" ", sidebarWidth-lineWidth)
+		}
 	}
 
 	return strings.Join(lines, "\n")
