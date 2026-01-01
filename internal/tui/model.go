@@ -18,6 +18,8 @@ var (
 	activeStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // green
 	doneStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))  // gray
 	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6")) // cyan
+	promptStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
+	toolStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 )
 
 // Model is the TUI state.
@@ -134,20 +136,27 @@ func (m Model) View() string {
 		return fmt.Sprintf("Error: %v\n\nPress q to quit.", m.err)
 	}
 
-	// Left panel: agent list
-	sidebar := m.renderSidebar()
+	// Calculate panel dimensions
+	sidebarHeight := m.height
+	contentWidth := m.width - sidebarWidth - 1
 
-	// Right panel: transcript
-	content := m.viewport.View()
+	// Left panel: agent list with border
+	sidebarContent := m.renderSidebarContent()
+	sidebar := renderPanelWithTitle("Subagents", sidebarContent, sidebarWidth, sidebarHeight, false)
 
-	// Combine
-	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, " ", content)
+	// Right panel: transcript with border
+	var contentTitle string
+	if agent := m.SelectedAgent(); agent != nil {
+		contentTitle = agent.ID
+	}
+	content := renderPanelWithTitle(contentTitle, m.viewport.View(), contentWidth, sidebarHeight, true)
+
+	// Combine horizontally
+	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, content)
 }
 
-func (m Model) renderSidebar() string {
+func (m Model) renderSidebarContent() string {
 	var lines []string
-	lines = append(lines, "Subagents")
-	lines = append(lines, strings.Repeat("-", sidebarWidth-2))
 
 	for i, agent := range m.agents {
 		var indicator string
@@ -158,39 +167,112 @@ func (m Model) renderSidebar() string {
 		}
 
 		name := agent.ID
-		if len(name) > sidebarWidth-4 {
-			name = name[:sidebarWidth-4]
+		if len(name) > sidebarWidth-6 {
+			name = name[:sidebarWidth-6]
 		}
 
-		line := fmt.Sprintf(" %s %s", indicator, name)
+		line := fmt.Sprintf("%s %s", indicator, name)
 		if i == m.selectedIdx {
 			line = selectedStyle.Render(line)
 		}
 		lines = append(lines, line)
 	}
 
-	// Pad to full height
-	for len(lines) < m.height-2 {
-		lines = append(lines, "")
+	return strings.Join(lines, "\n")
+}
+
+// renderPanelWithTitle renders a panel with the title embedded in the top border
+// like: ╭─ Title ────────╮
+func renderPanelWithTitle(title, content string, width, height int, focused bool) string {
+	borderColor := lipgloss.Color("8") // dim
+	if focused {
+		borderColor = lipgloss.Color("6") // cyan
 	}
 
-	return strings.Join(lines, "\n")
+	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
+	titleStyle := lipgloss.NewStyle().Foreground(borderColor).Bold(true)
+
+	// Border characters (rounded)
+	topLeft := "╭"
+	topRight := "╮"
+	bottomLeft := "╰"
+	bottomRight := "╯"
+	horizontal := "─"
+	vertical := "│"
+
+	contentWidth := width - 2
+
+	// Build top border with embedded title
+	var topBorder string
+	if title == "" {
+		topBorder = borderStyle.Render(topLeft + strings.Repeat(horizontal, contentWidth) + topRight)
+	} else {
+		titleText := " " + title + " "
+		remainingWidth := contentWidth - len(titleText) - 1
+		if remainingWidth < 0 {
+			remainingWidth = 0
+		}
+		topBorder = borderStyle.Render(topLeft+horizontal) + titleStyle.Render(titleText) + borderStyle.Render(strings.Repeat(horizontal, remainingWidth)+topRight)
+	}
+
+	// Split content into lines and pad/truncate to fit
+	contentLines := strings.Split(content, "\n")
+	var paddedLines []string
+	for i := 0; i < height-2; i++ {
+		var line string
+		if i < len(contentLines) {
+			line = contentLines[i]
+		}
+		// Truncate if too long
+		if len(line) > contentWidth {
+			line = line[:contentWidth-1] + "…"
+		}
+		// Pad to width
+		padding := contentWidth - len(line)
+		if padding < 0 {
+			padding = 0
+		}
+		paddedLines = append(paddedLines, borderStyle.Render(vertical)+line+strings.Repeat(" ", padding)+borderStyle.Render(vertical))
+	}
+
+	// Build bottom border
+	bottomBorder := borderStyle.Render(bottomLeft + strings.Repeat(horizontal, contentWidth) + bottomRight)
+
+	// Combine all parts
+	result := topBorder + "\n"
+	result += strings.Join(paddedLines, "\n") + "\n"
+	result += bottomBorder
+
+	return result
 }
 
 func formatTranscript(entries []claude.Entry) string {
 	var lines []string
+
 	for _, e := range entries {
 		switch e.Type {
 		case "user":
+			if e.IsToolResult() {
+				// Skip tool results in display (too verbose)
+				continue
+			}
 			content := e.TextContent()
 			if content != "" {
-				lines = append(lines, fmt.Sprintf("> %s", content))
+				// Show first 200 chars of prompt
+				if len(content) > 200 {
+					content = content[:200] + "..."
+				}
+				lines = append(lines, promptStyle.Render("> "+content))
 				lines = append(lines, "")
 			}
 		case "assistant":
 			if tool := e.ToolName(); tool != "" {
-				lines = append(lines, fmt.Sprintf("  [%s]", tool))
+				lines = append(lines, toolStyle.Render("  "+tool))
 			} else if text := e.TextContent(); text != "" {
+				// Show first 500 chars of response
+				if len(text) > 500 {
+					text = text[:500] + "..."
+				}
 				lines = append(lines, text)
 				lines = append(lines, "")
 			}
