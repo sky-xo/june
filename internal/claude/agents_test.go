@@ -65,14 +65,15 @@ func TestScanAgentsSorting(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create agents with specific IDs: charlie, alice, bob
-	// All will be inactive (old mod time)
-	for _, id := range []string{"charlie", "alice", "bob"} {
+	// All will be inactive with different mod times to test LastMod sorting
+	baseTime := time.Now().Add(-1 * time.Hour)
+	for i, id := range []string{"charlie", "alice", "bob"} {
 		f, _ := os.Create(filepath.Join(dir, "agent-"+id+".jsonl"))
 		f.WriteString(`{"type":"user","message":{"content":"test"}}`)
 		f.Close()
-		// Set old mod time to make them all inactive
-		oldTime := time.Now().Add(-1 * time.Hour)
-		os.Chtimes(filepath.Join(dir, "agent-"+id+".jsonl"), oldTime, oldTime)
+		// Set different old mod times: charlie oldest, alice middle, bob newest
+		modTime := baseTime.Add(time.Duration(i) * time.Minute)
+		os.Chtimes(filepath.Join(dir, "agent-"+id+".jsonl"), modTime, modTime)
 	}
 
 	agents, err := ScanAgents(dir)
@@ -84,8 +85,9 @@ func TestScanAgentsSorting(t *testing.T) {
 		t.Fatalf("got %d agents, want 3", len(agents))
 	}
 
-	// All inactive, should be sorted alphabetically by ID
-	expectedOrder := []string{"alice", "bob", "charlie"}
+	// All inactive, should be sorted by LastMod descending (most recent first)
+	// bob is newest (i=2), alice middle (i=1), charlie oldest (i=0)
+	expectedOrder := []string{"bob", "alice", "charlie"}
 	for i, expected := range expectedOrder {
 		if agents[i].ID != expected {
 			t.Errorf("position %d: got %s, want %s", i, agents[i].ID, expected)
@@ -104,10 +106,12 @@ func TestScanAgentsSortingWithActive(t *testing.T) {
 		f.Close()
 	}
 
-	// Make alpha and gamma inactive (old mod time)
-	oldTime := time.Now().Add(-1 * time.Hour)
-	os.Chtimes(filepath.Join(dir, "agent-alpha.jsonl"), oldTime, oldTime)
-	os.Chtimes(filepath.Join(dir, "agent-gamma.jsonl"), oldTime, oldTime)
+	// Make alpha and gamma inactive with different times
+	// alpha: oldest, gamma: less old (so gamma should come first in inactive list)
+	alphaTime := time.Now().Add(-2 * time.Hour)
+	gammaTime := time.Now().Add(-1 * time.Hour)
+	os.Chtimes(filepath.Join(dir, "agent-alpha.jsonl"), alphaTime, alphaTime)
+	os.Chtimes(filepath.Join(dir, "agent-gamma.jsonl"), gammaTime, gammaTime)
 
 	// delta and beta are active (recent mod time - already set by Create)
 
@@ -120,8 +124,8 @@ func TestScanAgentsSortingWithActive(t *testing.T) {
 		t.Fatalf("got %d agents, want 4", len(agents))
 	}
 
-	// Active agents first (beta, delta), then inactive (alpha, gamma) - all alphabetical within group
-	expectedOrder := []string{"beta", "delta", "alpha", "gamma"}
+	// Active agents first (alphabetical: beta, delta), then inactive (by LastMod: gamma newer, alpha older)
+	expectedOrder := []string{"beta", "delta", "gamma", "alpha"}
 	for i, expected := range expectedOrder {
 		if agents[i].ID != expected {
 			t.Errorf("position %d: got %s, want %s (active: %v)", i, agents[i].ID, expected, agents[i].IsActive())
