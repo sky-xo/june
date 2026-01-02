@@ -566,6 +566,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selection.Dragging {
 					// Update selection end point
 					m.selection.Current = m.screenToContentPosition(msg.X, msg.Y)
+
+					// Auto-scroll if near edges
+					_, _, _, contentHeight := m.layout()
+					edgeThreshold := 2
+
+					// Y position relative to content area (subtract top border)
+					relativeY := msg.Y - 1
+
+					if relativeY <= edgeThreshold && m.viewport.YOffset > 0 {
+						// Near top edge - scroll up
+						m.viewport.LineUp(1)
+						// Update selection to follow scroll
+						m.selection.Current = m.screenToContentPosition(msg.X, msg.Y)
+					} else if relativeY >= contentHeight-edgeThreshold {
+						// Near bottom edge - scroll down
+						m.viewport.LineDown(1)
+						// Update selection to follow scroll
+						m.selection.Current = m.screenToContentPosition(msg.X, msg.Y)
+					}
+
 					return m, nil
 				}
 			case tea.MouseActionRelease:

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -576,5 +577,46 @@ func TestView_NoSelectionIndicatorWhenInactive(t *testing.T) {
 
 	if strings.Contains(view, "SELECTING") {
 		t.Errorf("Should not show 'SELECTING' when selection inactive")
+	}
+}
+
+func TestUpdate_DragNearTopEdgeScrollsUp(t *testing.T) {
+	m := NewModel("/test")
+	m.width = 80
+	m.height = 24
+	m.focusedPanel = panelRight
+	m.viewport.Width = 50
+	m.viewport.Height = 10
+	m.viewport.YOffset = 5 // Scrolled down
+
+	// Create content with enough lines
+	lines := make([]string, 20)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("Line %d content", i)
+	}
+	m.contentLines = lines
+	m.viewport.SetContent(strings.Join(lines, "\n"))
+
+	m.selection = SelectionState{
+		Active:   true,
+		Dragging: true,
+		Anchor:   Position{Row: 7, Col: 0},
+		Current:  Position{Row: 7, Col: 5},
+	}
+
+	// Simulate drag near top edge (Y=1 is the border, Y=2 is first content line)
+	msg := tea.MouseMsg{
+		X:      sidebarWidth + 5,
+		Y:      2, // Near top edge
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionMotion,
+	}
+
+	newModel, _ := m.Update(msg)
+	updated := newModel.(Model)
+
+	// Should have scrolled up
+	if updated.viewport.YOffset >= 5 {
+		t.Errorf("Expected viewport to scroll up from offset 5, got %d", updated.viewport.YOffset)
 	}
 }
