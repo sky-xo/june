@@ -232,13 +232,15 @@ func (m *Model) applySelectionHighlight() []StyledLine {
 	return result
 }
 
-// sidebarItem represents either a channel header or an agent in the sidebar.
+// sidebarItem represents either a channel header, an agent, or an expander in the sidebar.
 type sidebarItem struct {
 	isHeader    bool
 	channelName string        // Only set for headers
 	channelIdx  int           // Index into m.channels
 	agent       *claude.Agent // Only set for agents
 	agentIdx    int           // Index within channel's agents slice
+	isExpander  bool          // True for "show N more" items
+	hiddenCount int           // Only set for expanders: how many agents are hidden
 }
 
 // Model is the TUI state.
