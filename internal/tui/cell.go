@@ -42,3 +42,40 @@ func (sl StyledLine) String() string {
 	}
 	return string(runes)
 }
+
+// ParseStyledLine parses a string with ANSI escape codes into a StyledLine
+func ParseStyledLine(s string) StyledLine {
+	var result StyledLine
+	var currentStyle CellStyle
+
+	runes := []rune(s)
+	i := 0
+
+	for i < len(runes) {
+		r := runes[i]
+
+		if r == '\x1b' && i+1 < len(runes) && runes[i+1] == '[' {
+			// Start of CSI sequence - skip for now, implement in next task
+			// Find the end of the sequence (letter a-zA-Z)
+			j := i + 2
+			for j < len(runes) && !isCSITerminator(runes[j]) {
+				j++
+			}
+			if j < len(runes) {
+				j++ // include terminator
+			}
+			i = j
+			continue
+		}
+
+		result = append(result, Cell{Char: r, Style: currentStyle})
+		i++
+	}
+
+	return result
+}
+
+// isCSITerminator returns true if r terminates a CSI sequence
+func isCSITerminator(r rune) bool {
+	return (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')
+}
