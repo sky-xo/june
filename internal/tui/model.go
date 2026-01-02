@@ -45,6 +45,15 @@ const (
 	panelRight = 1
 )
 
+// sidebarItem represents either a channel header or an agent in the sidebar.
+type sidebarItem struct {
+	isHeader    bool
+	channelName string        // Only set for headers
+	channelIdx  int           // Index into m.channels
+	agent       *claude.Agent // Only set for agents
+	agentIdx    int           // Index within channel's agents slice
+}
+
 // Model is the TUI state.
 type Model struct {
 	claudeProjectsDir string                    // Base Claude projects directory (~/.claude/projects)
@@ -75,24 +84,50 @@ func NewModel(claudeProjectsDir, basePath, repoName string) Model {
 	}
 }
 
-// SelectedAgent returns the currently selected agent, or nil if none.
-// NOTE: Temporary implementation using flat list until Task 4 updates navigation.
-func (m Model) SelectedAgent() *claude.Agent {
-	agents := m.agents()
-	if m.selectedIdx < 0 || m.selectedIdx >= len(agents) {
-		return nil
+// sidebarItems returns a flat list of all items to display in the sidebar.
+func (m Model) sidebarItems() []sidebarItem {
+	var items []sidebarItem
+	for ci, ch := range m.channels {
+		// Add channel header
+		items = append(items, sidebarItem{
+			isHeader:    true,
+			channelName: ch.Name,
+			channelIdx:  ci,
+		})
+		// Add agents
+		for ai := range ch.Agents {
+			items = append(items, sidebarItem{
+				isHeader:   false,
+				channelIdx: ci,
+				agent:      &m.channels[ci].Agents[ai],
+				agentIdx:   ai,
+			})
+		}
 	}
-	return &agents[m.selectedIdx]
+	return items
 }
 
-// agents returns a flat list of all agents across all channels.
-// This is a temporary helper for backward compatibility until Task 4 updates navigation.
-func (m Model) agents() []claude.Agent {
-	var result []claude.Agent
+// totalSidebarItems returns the total count of items (headers + agents).
+func (m Model) totalSidebarItems() int {
+	count := 0
 	for _, ch := range m.channels {
-		result = append(result, ch.Agents...)
+		count++ // header
+		count += len(ch.Agents)
 	}
-	return result
+	return count
+}
+
+// SelectedAgent returns the currently selected agent, or nil if a header is selected.
+func (m Model) SelectedAgent() *claude.Agent {
+	items := m.sidebarItems()
+	if m.selectedIdx < 0 || m.selectedIdx >= len(items) {
+		return nil
+	}
+	item := items[m.selectedIdx]
+	if item.isHeader {
+		return nil
+	}
+	return item.agent
 }
 
 // sidebarVisibleLines returns how many agent lines can be displayed in the sidebar,
@@ -108,9 +143,9 @@ func (m Model) sidebarVisibleLines() int {
 	if m.sidebarOffset > 0 {
 		lines--
 	}
-	// Reserve space for bottom indicator if there are more agents below
+	// Reserve space for bottom indicator if there are more items below
 	endIdx := m.sidebarOffset + lines
-	if endIdx < len(m.agents()) {
+	if endIdx < m.totalSidebarItems() {
 		lines--
 	}
 	if lines < 0 {
@@ -121,7 +156,7 @@ func (m Model) sidebarVisibleLines() int {
 
 // ensureSelectedVisible adjusts sidebarOffset to keep selectedIdx visible.
 func (m *Model) ensureSelectedVisible() {
-	if len(m.agents()) == 0 {
+	if m.totalSidebarItems() == 0 {
 		return
 	}
 
@@ -198,8 +233,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "down", "j":
 			if m.focusedPanel == panelLeft {
-				// Navigate agent list
-				if m.selectedIdx < len(m.agents())-1 {
+				// Navigate sidebar list
+				if m.selectedIdx < m.totalSidebarItems()-1 {
 					m.selectedIdx++
 					m.lastNavWasKeyboard = true
 					m.ensureSelectedVisible()
@@ -255,7 +290,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if pageSize < 1 {
 					pageSize = 1
 				}
-				maxOffset := len(m.agents()) - m.sidebarVisibleLines()
+				maxOffset := m.totalSidebarItems() - m.sidebarVisibleLines()
 				if maxOffset < 0 {
 					maxOffset = 0
 				}
@@ -265,12 +300,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if m.sidebarOffset == maxOffset && oldOffset == maxOffset {
 					// Already at bottom, move selection to last item
-					m.selectedIdx = len(m.agents()) - 1
+					m.selectedIdx = m.totalSidebarItems() - 1
 				} else {
 					// Keep selection at same visual row
 					m.selectedIdx = m.sidebarOffset + visualRow
-					if m.selectedIdx >= len(m.agents()) {
-						m.selectedIdx = len(m.agents()) - 1
+					if m.selectedIdx >= m.totalSidebarItems() {
+						m.selectedIdx = m.totalSidebarItems() - 1
 					}
 				}
 				m.lastNavWasKeyboard = true
@@ -307,7 +342,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.MouseButtonWheelDown:
 			if inLeftPanel {
 				// Scroll sidebar down by 1 line
-				maxOffset := len(m.agents()) - m.sidebarVisibleLines()
+				maxOffset := m.totalSidebarItems() - m.sidebarVisibleLines()
 				if maxOffset < 0 {
 					maxOffset = 0
 				}
@@ -321,9 +356,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Handle clicks in left panel to select agents
+		// Handle clicks in left panel to select items
 		if inLeftPanel && msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionRelease {
-			// Calculate which agent was clicked
+			// Calculate which item was clicked
 			// Subtract 1 for top border
 			clickY := msg.Y - 1
 
@@ -332,12 +367,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				clickY-- // First line is the "N more" indicator
 			}
 
-			// Convert to agent index, but only within visible range
+			// Convert to item index, but only within visible range
 			visibleLines := m.sidebarVisibleLines()
 			if clickY >= 0 && clickY < visibleLines {
-				agentIdx := m.sidebarOffset + clickY
-				if agentIdx >= 0 && agentIdx < len(m.agents()) {
-					m.selectedIdx = agentIdx
+				itemIdx := m.sidebarOffset + clickY
+				if itemIdx >= 0 && itemIdx < m.totalSidebarItems() {
+					m.selectedIdx = itemIdx
 					if agent := m.SelectedAgent(); agent != nil {
 						cmds = append(cmds, loadTranscriptCmd(*agent))
 					}
@@ -473,37 +508,35 @@ func (m Model) View() string {
 }
 
 func (m Model) renderSidebarContent(width, height int) string {
-	agents := m.agents()
-	if len(agents) == 0 || height <= 0 {
+	items := m.sidebarItems()
+	if len(items) == 0 || height <= 0 {
 		return "No agents found"
 	}
 
-	// Calculate how many agents are hidden above and below
+	// Calculate scroll indicators
 	hiddenAbove := m.sidebarOffset
-	totalAgents := len(agents)
+	totalItems := len(items)
 
-	// Calculate available lines for agents (reserve lines for indicators if needed)
 	availableLines := height
 	showTopIndicator := hiddenAbove > 0
 	if showTopIndicator {
 		availableLines--
 	}
 
-	// Calculate how many agents we can show
 	visibleEnd := m.sidebarOffset + availableLines
-	if visibleEnd > totalAgents {
-		visibleEnd = totalAgents
+	if visibleEnd > totalItems {
+		visibleEnd = totalItems
 	}
 
-	hiddenBelow := totalAgents - visibleEnd
+	hiddenBelow := totalItems - visibleEnd
 	showBottomIndicator := hiddenBelow > 0
 	if showBottomIndicator && availableLines > 0 {
 		availableLines--
 		visibleEnd = m.sidebarOffset + availableLines
-		if visibleEnd > totalAgents {
-			visibleEnd = totalAgents
+		if visibleEnd > totalItems {
+			visibleEnd = totalItems
 		}
-		hiddenBelow = totalAgents - visibleEnd
+		hiddenBelow = totalItems - visibleEnd
 	}
 
 	var lines []string
@@ -517,50 +550,69 @@ func (m Model) renderSidebarContent(width, height int) string {
 		lines = append(lines, doneStyle.Render(indicator))
 	}
 
-	// Render visible agents
+	// Header style
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "4", Dark: "6"})
+
+	// Render visible items
 	for i := m.sidebarOffset; i < visibleEnd; i++ {
-		agent := agents[i]
+		item := items[i]
 
-		// Determine indicator (without styling for selected row)
-		var indicator string
-		indicatorChar := "\u2713"
-		if agent.IsActive() {
-			indicatorChar = "\u25cf"
-		}
-
-		// Use description if available, otherwise fall back to ID
-		name := agent.Description
-		if name == "" {
-			name = agent.ID
-		}
-		maxNameLen := width - 3 // indicator + space + name
-		if len(name) > maxNameLen {
-			name = name[:maxNameLen]
-		}
-
-		if i == m.selectedIdx {
-			// For selected row: apply background to entire row but keep indicator color
-			selectedBg := lipgloss.AdaptiveColor{Light: "254", Dark: "8"}
-			var styledIndicator string
-			if agent.IsActive() {
-				styledIndicator = activeStyle.Background(selectedBg).Render(indicatorChar)
+		if item.isHeader {
+			// Render channel header
+			header := item.channelName
+			if len(header) > width {
+				header = header[:width]
+			}
+			if i == m.selectedIdx {
+				// Selected header
+				selectedBg := lipgloss.AdaptiveColor{Light: "254", Dark: "8"}
+				rest := header
+				if len(rest) < width {
+					rest = rest + strings.Repeat(" ", width-len(rest))
+				}
+				lines = append(lines, headerStyle.Background(selectedBg).Render(rest))
 			} else {
-				styledIndicator = doneStyle.Background(selectedBg).Render(indicatorChar)
+				lines = append(lines, headerStyle.Render(header))
 			}
-			// Build the rest with background
-			rest := fmt.Sprintf(" %s", name)
-			if len(indicatorChar)+len(rest) < width {
-				rest = rest + strings.Repeat(" ", width-len(indicatorChar)-len(rest))
-			}
-			lines = append(lines, styledIndicator+selectedBgStyle.Render(rest))
 		} else {
-			// For non-selected: apply color to indicator only
+			// Render agent (indented under header)
+			agent := item.agent
+			var indicator string
+			indicatorChar := "\u2713"
 			if agent.IsActive() {
-				indicator = activeStyle.Render(indicatorChar)
-			} else {
-				indicator = doneStyle.Render(indicatorChar)
+				indicatorChar = "\u25cf"
 			}
-			lines = append(lines, fmt.Sprintf("%s %s", indicator, name))
+
+			name := agent.Description
+			if name == "" {
+				name = agent.ID
+			}
+			maxNameLen := width - 5 // "  " indent + indicator + space + name
+			if len(name) > maxNameLen {
+				name = name[:maxNameLen]
+			}
+
+			if i == m.selectedIdx {
+				selectedBg := lipgloss.AdaptiveColor{Light: "254", Dark: "8"}
+				var styledIndicator string
+				if agent.IsActive() {
+					styledIndicator = activeStyle.Background(selectedBg).Render(indicatorChar)
+				} else {
+					styledIndicator = doneStyle.Background(selectedBg).Render(indicatorChar)
+				}
+				rest := fmt.Sprintf(" %s", name)
+				if len("  ")+len(indicatorChar)+len(rest) < width {
+					rest = rest + strings.Repeat(" ", width-len("  ")-len(indicatorChar)-len(rest))
+				}
+				lines = append(lines, "  "+styledIndicator+selectedBgStyle.Render(rest))
+			} else {
+				if agent.IsActive() {
+					indicator = activeStyle.Render(indicatorChar)
+				} else {
+					indicator = doneStyle.Render(indicatorChar)
+				}
+				lines = append(lines, fmt.Sprintf("  %s %s", indicator, name))
+			}
 		}
 	}
 
