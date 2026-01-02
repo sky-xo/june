@@ -261,7 +261,13 @@ func (sl StyledLine) Render() string {
 			buf.WriteString(styleToANSI(lastStyle, cell.Style))
 			lastStyle = cell.Style
 		}
-		buf.WriteRune(cell.Char)
+		// Convert TABs to spaces - bubbletea viewport strips TABs which
+		// corrupts ANSI sequences when TABs appear between escape codes and content
+		if cell.Char == '\t' {
+			buf.WriteRune(' ')
+		} else {
+			buf.WriteRune(cell.Char)
+		}
 	}
 
 	// Reset at end if we had any styling
@@ -272,9 +278,11 @@ func (sl StyledLine) Render() string {
 	return buf.String()
 }
 
-// styleToANSI generates ANSI codes to transition from old style to new style
+// styleToANSI generates ANSI codes to transition from old style to new style.
+// Uses incremental updates - only emits codes for attributes that actually change.
+// This produces shorter sequences and avoids potential terminal edge cases.
 func styleToANSI(from, to CellStyle) string {
-	// If target is default, just reset
+	// If target is default style, just reset
 	if to == (CellStyle{}) {
 		if from != (CellStyle{}) {
 			return "\x1b[0m"
@@ -282,25 +290,77 @@ func styleToANSI(from, to CellStyle) string {
 		return ""
 	}
 
+	// If source is default, emit full target style
+	if from == (CellStyle{}) {
+		return fullStyleToANSI(to)
+	}
+
+	// Incremental update - only emit what changed
 	var parts []string
 
-	// If coming from styled, reset first for simplicity
-	if from != (CellStyle{}) && from != to {
-		parts = append(parts, "0")
+	// Handle bold changes
+	if to.Bold != from.Bold {
+		if to.Bold {
+			parts = append(parts, "1")
+		} else {
+			parts = append(parts, "22") // bold off
+		}
 	}
 
-	if to.Bold {
+	// Handle italic changes
+	if to.Italic != from.Italic {
+		if to.Italic {
+			parts = append(parts, "3")
+		} else {
+			parts = append(parts, "23") // italic off
+		}
+	}
+
+	// Handle FG color changes
+	if to.FG != from.FG {
+		if to.FG.Type == ColorNone {
+			parts = append(parts, "39") // default FG
+		} else {
+			parts = append(parts, colorToSGR(to.FG, false)...)
+		}
+	}
+
+	// Handle BG color changes
+	if to.BG != from.BG {
+		if to.BG.Type == ColorNone {
+			parts = append(parts, "49") // default BG
+		} else {
+			parts = append(parts, colorToSGR(to.BG, true)...)
+		}
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	return "\x1b[" + strings.Join(parts, ";") + "m"
+}
+
+// fullStyleToANSI emits a complete style specification (used when starting from default)
+func fullStyleToANSI(style CellStyle) string {
+	var parts []string
+
+	if style.Bold {
 		parts = append(parts, "1")
 	}
-	if to.Italic {
+	if style.Italic {
 		parts = append(parts, "3")
 	}
-
-	if to.FG.Type != ColorNone {
-		parts = append(parts, colorToSGR(to.FG, false)...)
+	if style.FG.Type != ColorNone {
+		parts = append(parts, colorToSGR(style.FG, false)...)
+	} else if style.BG.Type != ColorNone {
+		// Always emit explicit default FG when we have BG but no FG.
+		// Some terminals handle BG-only sequences (\x1b[48;5;Nm) poorly at line start,
+		// causing rendering issues like unexpected line breaks.
+		parts = append(parts, "39")
 	}
-	if to.BG.Type != ColorNone {
-		parts = append(parts, colorToSGR(to.BG, true)...)
+	if style.BG.Type != ColorNone {
+		parts = append(parts, colorToSGR(style.BG, true)...)
 	}
 
 	if len(parts) == 0 {
