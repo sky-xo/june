@@ -6,6 +6,7 @@ import (
 
 	"june/internal/claude"
 
+	"github.com/acarl005/stripansi"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -443,5 +444,97 @@ func TestModel_GetSelectedText_StripsANSI(t *testing.T) {
 	// Should contain the text
 	if !strings.Contains(got, "Green text") {
 		t.Errorf("getSelectedText() should contain text, got: %q", got)
+	}
+}
+
+func TestModel_ApplySelectionHighlight(t *testing.T) {
+	m := NewModel("/test")
+	m.contentLines = []string{"Hello World"}
+	m.selection = SelectionState{
+		Active:  true,
+		Anchor:  Position{Row: 0, Col: 0},
+		Current: Position{Row: 0, Col: 5},
+	}
+
+	highlighted := m.applySelectionHighlight()
+
+	// Should have exactly one line
+	if len(highlighted) != 1 {
+		t.Fatalf("Expected 1 line, got %d", len(highlighted))
+	}
+
+	// The highlighted version should be different from original OR contain the text
+	// (lipgloss may not produce ANSI codes in non-terminal environments)
+	stripped := stripansi.Strip(highlighted[0])
+	if !strings.Contains(stripped, "Hello") {
+		t.Errorf("Expected 'Hello' in output, got: %s", stripped)
+	}
+
+	// The stripped content should still have the full text
+	if stripped != "Hello World" {
+		t.Errorf("Expected stripped content to be 'Hello World', got: %s", stripped)
+	}
+}
+
+func TestModel_ApplySelectionHighlight_MultipleLines(t *testing.T) {
+	m := NewModel("/test")
+	m.contentLines = []string{"Line one", "Line two", "Line three"}
+	m.selection = SelectionState{
+		Active:  true,
+		Anchor:  Position{Row: 0, Col: 5},
+		Current: Position{Row: 2, Col: 4},
+	}
+
+	highlighted := m.applySelectionHighlight()
+
+	// Should have all three lines
+	if len(highlighted) != 3 {
+		t.Fatalf("Expected 3 lines, got %d", len(highlighted))
+	}
+
+	// All lines should still contain their original text when stripped
+	for i, line := range highlighted {
+		stripped := stripansi.Strip(line)
+		original := stripansi.Strip(m.contentLines[i])
+		if stripped != original {
+			t.Errorf("Line %d: expected %q, got %q", i, original, stripped)
+		}
+	}
+}
+
+func TestModel_ApplySelectionHighlight_EmptySelection(t *testing.T) {
+	m := NewModel("/test")
+	m.contentLines = []string{"Hello World"}
+	m.selection = SelectionState{
+		Active:  true,
+		Anchor:  Position{Row: 0, Col: 5},
+		Current: Position{Row: 0, Col: 5}, // Same position = empty
+	}
+
+	highlighted := m.applySelectionHighlight()
+
+	// Should return original content unchanged when selection is empty
+	if len(highlighted) != len(m.contentLines) {
+		t.Fatalf("Expected %d lines, got %d", len(m.contentLines), len(highlighted))
+	}
+	if highlighted[0] != m.contentLines[0] {
+		t.Error("Empty selection should return original content unchanged")
+	}
+}
+
+func TestModel_ApplySelectionHighlight_InactiveSelection(t *testing.T) {
+	m := NewModel("/test")
+	m.contentLines = []string{"Hello World"}
+	m.selection = SelectionState{
+		Active:  false,
+		Anchor:  Position{Row: 0, Col: 0},
+		Current: Position{Row: 0, Col: 5},
+	}
+
+	highlighted := m.applySelectionHighlight()
+
+	// Should return original content unchanged when selection is inactive
+	if highlighted[0] != m.contentLines[0] {
+		t.Error("Inactive selection should return original content unchanged")
 	}
 }

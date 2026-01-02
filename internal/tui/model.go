@@ -179,6 +179,65 @@ func (m *Model) copySelection() {
 	clipboard.Write(clipboard.FmtText, []byte(text))
 }
 
+// applySelectionHighlight returns content lines with selection highlighted using inverted colors
+func (m *Model) applySelectionHighlight() []string {
+	if !m.selection.Active || m.selection.IsEmpty() || len(m.contentLines) == 0 {
+		return m.contentLines
+	}
+
+	start, end := m.selection.Normalize()
+	result := make([]string, len(m.contentLines))
+	copy(result, m.contentLines)
+
+	// Clamp to valid range
+	if start.Row >= len(m.contentLines) {
+		return result
+	}
+	if end.Row >= len(m.contentLines) {
+		end.Row = len(m.contentLines) - 1
+		end.Col = lipgloss.Width(m.contentLines[end.Row])
+	}
+
+	invertStyle := lipgloss.NewStyle().Reverse(true)
+
+	for row := start.Row; row <= end.Row; row++ {
+		line := m.contentLines[row]
+		strippedLine := stripansi.Strip(line)
+		lineLen := len(strippedLine)
+
+		startCol := 0
+		endCol := lineLen
+
+		if row == start.Row {
+			startCol = start.Col
+			if startCol > lineLen {
+				startCol = lineLen
+			}
+		}
+		if row == end.Row {
+			endCol = end.Col
+			if endCol > lineLen {
+				endCol = lineLen
+			}
+		}
+
+		if startCol >= endCol {
+			continue
+		}
+
+		// Build the line with inverted selection
+		// Note: This is simplified - for lines with ANSI codes, we use stripped text
+		// A more sophisticated approach would parse and preserve ANSI codes
+		before := strippedLine[:startCol]
+		selected := strippedLine[startCol:endCol]
+		after := strippedLine[endCol:]
+
+		result[row] = before + invertStyle.Render(selected) + after
+	}
+
+	return result
+}
+
 // Model is the TUI state.
 type Model struct {
 	projectDir  string                    // Claude project directory we're watching
@@ -672,7 +731,25 @@ func (m Model) View() string {
 			rightTitle = fmt.Sprintf("%s | %s", agent.ID, formatTimestamp(agent.LastMod))
 		}
 	}
-	rightPanel := renderPanelWithTitle(rightTitle, m.viewport.View(), rightWidth, panelHeight, rightBorderColor)
+
+	// Use highlighted content when selection is active
+	var rightContent string
+	if m.selection.Active && !m.selection.IsEmpty() {
+		// Apply selection highlighting
+		highlightedLines := m.applySelectionHighlight()
+		// Only show visible portion based on viewport offset
+		visibleStart := m.viewport.YOffset
+		visibleEnd := visibleStart + m.viewport.Height
+		if visibleEnd > len(highlightedLines) {
+			visibleEnd = len(highlightedLines)
+		}
+		if visibleStart < len(highlightedLines) {
+			rightContent = strings.Join(highlightedLines[visibleStart:visibleEnd], "\n")
+		}
+	} else {
+		rightContent = m.viewport.View()
+	}
+	rightPanel := renderPanelWithTitle(rightTitle, rightContent, rightWidth, panelHeight, rightBorderColor)
 
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
