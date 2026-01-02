@@ -4,7 +4,9 @@ package claude
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 )
 
 // Channel represents a group of agents from a branch/worktree.
@@ -69,4 +71,58 @@ func ExtractChannelName(baseDir, projectDir, repoName string) string {
 		return repoName + ":unknown"
 	}
 	return repoName + ":" + lastPart
+}
+
+// ScanChannels scans all related project directories and returns channels
+// sorted by most recent agent activity (channels with active/recent agents first).
+func ScanChannels(claudeProjectsDir, basePath, repoName string) ([]Channel, error) {
+	relatedDirs := FindRelatedProjectDirs(claudeProjectsDir, basePath)
+	if len(relatedDirs) == 0 {
+		return nil, nil
+	}
+
+	baseDir := strings.ReplaceAll(basePath, "/", "-")
+	var channels []Channel
+
+	for _, dir := range relatedDirs {
+		dirName := filepath.Base(dir)
+		channelName := ExtractChannelName(baseDir, dirName, repoName)
+
+		agents, err := ScanAgents(dir)
+		if err != nil {
+			continue // Skip dirs we can't read
+		}
+
+		if len(agents) == 0 {
+			continue // Skip empty channels
+		}
+
+		channels = append(channels, Channel{
+			Name:   channelName,
+			Dir:    dir,
+			Agents: agents,
+		})
+	}
+
+	// Sort channels by most recent agent (first agent in each channel is most recent due to ScanAgents sorting)
+	sort.Slice(channels, func(i, j int) bool {
+		// Channels with active agents come first
+		iHasActive := len(channels[i].Agents) > 0 && channels[i].Agents[0].IsActive()
+		jHasActive := len(channels[j].Agents) > 0 && channels[j].Agents[0].IsActive()
+		if iHasActive != jHasActive {
+			return iHasActive
+		}
+
+		// Then by most recent agent modification time
+		var iTime, jTime time.Time
+		if len(channels[i].Agents) > 0 {
+			iTime = channels[i].Agents[0].LastMod
+		}
+		if len(channels[j].Agents) > 0 {
+			jTime = channels[j].Agents[0].LastMod
+		}
+		return iTime.After(jTime)
+	})
+
+	return channels, nil
 }
