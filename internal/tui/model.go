@@ -45,16 +45,47 @@ const (
 	panelRight = 1
 )
 
+// Position represents a location in content (row = line number, col = character offset)
+type Position struct {
+	Row int // Line number in content (0-indexed)
+	Col int // Character position in line (0-indexed)
+}
+
+// SelectionState tracks text selection in the content panel
+type SelectionState struct {
+	Active   bool     // Whether selection mode is active
+	Anchor   Position // Where the drag started
+	Current  Position // Current drag position
+	Dragging bool     // Whether mouse button is currently held down
+}
+
+// IsEmpty returns true if there's no actual selection (same start and end, or not active)
+func (s SelectionState) IsEmpty() bool {
+	if !s.Active {
+		return true
+	}
+	return s.Anchor == s.Current
+}
+
+// Normalize returns start and end positions where start is always before end
+func (s SelectionState) Normalize() (start, end Position) {
+	if s.Anchor.Row < s.Current.Row || (s.Anchor.Row == s.Current.Row && s.Anchor.Col <= s.Current.Col) {
+		return s.Anchor, s.Current
+	}
+	return s.Current, s.Anchor
+}
+
 // Model is the TUI state.
 type Model struct {
 	projectDir  string                    // Claude project directory we're watching
 	agents      []claude.Agent            // List of agents
 	transcripts map[string][]claude.Entry // Agent ID -> transcript entries
 
-	selectedIdx        int  // Currently selected agent index
-	sidebarOffset      int  // Scroll offset for the sidebar (index of first visible agent)
-	lastNavWasKeyboard bool // Track if last sidebar interaction was keyboard (for auto-scroll behavior)
-	focusedPanel       int  // Which panel has focus (panelLeft or panelRight)
+	selectedIdx        int            // Currently selected agent index
+	sidebarOffset      int            // Scroll offset for the sidebar (index of first visible agent)
+	lastNavWasKeyboard bool           // Track if last sidebar interaction was keyboard (for auto-scroll behavior)
+	focusedPanel       int            // Which panel has focus (panelLeft or panelRight)
+	selection          SelectionState // Text selection state
 	width              int
 	height             int
 	viewport           viewport.Model
