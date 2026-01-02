@@ -145,14 +145,15 @@ func searchString(s, substr string) bool {
 	return false
 }
 
-// createTestAgents creates N test agents for testing
+// createTestAgents creates N test agents for testing.
+// All agents are created with recent LastMod times (within 2 hours) so they all pass filtering.
 func createTestAgents(n int) []claude.Agent {
 	agents := make([]claude.Agent, n)
 	for i := 0; i < n; i++ {
 		agents[i] = claude.Agent{
 			ID:       "agent" + string(rune('A'+i)),
 			FilePath: "/test/agent-" + string(rune('A'+i)) + ".jsonl",
-			LastMod:  time.Now().Add(-time.Duration(i) * time.Hour),
+			LastMod:  time.Now().Add(-time.Duration(i) * time.Minute), // Use minutes to keep all recent
 		}
 	}
 	return agents
@@ -778,9 +779,10 @@ func TestUpdate_KKeyInMiddleOfSidebar_DoesNotScrollContent(t *testing.T) {
 }
 
 func TestRenderSidebarShowsDescription(t *testing.T) {
+	now := time.Now()
 	agents := []claude.Agent{
-		{ID: "abc123", Description: "Fix login bug"},
-		{ID: "def456", Description: ""},
+		{ID: "abc123", Description: "Fix login bug", LastMod: now.Add(-1 * time.Minute)},
+		{ID: "def456", Description: "", LastMod: now.Add(-2 * time.Minute)},
 	}
 	m := createModelWithAgents(agents, 80, 24)
 
@@ -799,7 +801,7 @@ func TestRenderSidebarShowsDescription(t *testing.T) {
 
 func TestViewShowsDescriptionAndIDInRightPanel(t *testing.T) {
 	agents := []claude.Agent{
-		{ID: "abc12345", Description: "Fix login bug", FilePath: "/tmp/test.jsonl"},
+		{ID: "abc12345", Description: "Fix login bug", FilePath: "/tmp/test.jsonl", LastMod: time.Now()},
 	}
 	m := createModelWithAgents(agents, 80, 24)
 	// With channel headers, index 0 is the header, index 1 is the first agent
@@ -818,7 +820,7 @@ func TestViewShowsDescriptionAndIDInRightPanel(t *testing.T) {
 
 func TestViewShowsOnlyIDWhenNoDescription(t *testing.T) {
 	agents := []claude.Agent{
-		{ID: "abc12345", Description: "", FilePath: "/tmp/test.jsonl"},
+		{ID: "abc12345", Description: "", FilePath: "/tmp/test.jsonl", LastMod: time.Now()},
 	}
 	m := createModelWithAgents(agents, 80, 24)
 	// With channel headers, index 0 is the header, index 1 is the first agent
@@ -833,5 +835,63 @@ func TestViewShowsOnlyIDWhenNoDescription(t *testing.T) {
 	// Should NOT have empty parentheses
 	if strings.Contains(view, "()") {
 		t.Errorf("should not show empty parentheses when no description, got: %s", view)
+	}
+}
+
+func TestSidebarItems_FiltersOldAgents(t *testing.T) {
+	now := time.Now()
+	agents := []claude.Agent{
+		{ID: "active", LastMod: now.Add(-5 * time.Second)},   // active
+		{ID: "recent", LastMod: now.Add(-1 * time.Hour)},     // recent
+		{ID: "old1", LastMod: now.Add(-24 * time.Hour)},      // old
+		{ID: "old2", LastMod: now.Add(-48 * time.Hour)},      // old
+	}
+
+	m := createModelWithAgents(agents, 80, 40)
+	items := m.sidebarItems()
+
+	// Should have: 1 header + 2 visible agents (active, recent) + 1 expander
+	// Total: 4 items
+	if len(items) != 4 {
+		t.Fatalf("expected 4 items, got %d", len(items))
+	}
+
+	// First item is header
+	if !items[0].isHeader {
+		t.Error("first item should be header")
+	}
+
+	// Last item should be expander with count 2
+	expander := items[3]
+	if !expander.isExpander {
+		t.Error("last item should be expander")
+	}
+	if expander.hiddenCount != 2 {
+		t.Errorf("expander.hiddenCount = %d, want 2", expander.hiddenCount)
+	}
+}
+
+func TestSidebarItems_ExpandedShowsAll(t *testing.T) {
+	now := time.Now()
+	agents := []claude.Agent{
+		{ID: "active", LastMod: now.Add(-5 * time.Second)},
+		{ID: "old1", LastMod: now.Add(-24 * time.Hour)},
+		{ID: "old2", LastMod: now.Add(-48 * time.Hour)},
+	}
+
+	m := createModelWithAgents(agents, 80, 40)
+	m.expandedChannels[0] = true // Expand channel 0
+	items := m.sidebarItems()
+
+	// Should have: 1 header + 3 agents (all shown), no expander
+	if len(items) != 4 {
+		t.Fatalf("expected 4 items, got %d", len(items))
+	}
+
+	// No expander when expanded
+	for _, item := range items {
+		if item.isExpander {
+			t.Error("should not have expander when channel is expanded")
+		}
 	}
 }

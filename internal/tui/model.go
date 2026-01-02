@@ -279,6 +279,7 @@ func NewModel(claudeProjectsDir, basePath, repoName string) Model {
 }
 
 // sidebarItems returns a flat list of all items to display in the sidebar.
+// Filters agents to show only active/recent unless channel is expanded.
 func (m Model) sidebarItems() []sidebarItem {
 	var items []sidebarItem
 	for ci, ch := range m.channels {
@@ -288,13 +289,34 @@ func (m Model) sidebarItems() []sidebarItem {
 			channelName: ch.Name,
 			channelIdx:  ci,
 		})
-		// Add agents
-		for ai := range ch.Agents {
+
+		expanded := m.expandedChannels[ci]
+		var visibleAgents, hiddenAgents []int
+
+		for ai, agent := range ch.Agents {
+			if expanded || agent.IsActive() || agent.IsRecent() {
+				visibleAgents = append(visibleAgents, ai)
+			} else {
+				hiddenAgents = append(hiddenAgents, ai)
+			}
+		}
+
+		// Add visible agents
+		for _, ai := range visibleAgents {
 			items = append(items, sidebarItem{
 				isHeader:   false,
 				channelIdx: ci,
 				agent:      &m.channels[ci].Agents[ai],
 				agentIdx:   ai,
+			})
+		}
+
+		// Add expander if there are hidden agents
+		if len(hiddenAgents) > 0 {
+			items = append(items, sidebarItem{
+				isExpander:  true,
+				channelIdx:  ci,
+				hiddenCount: len(hiddenAgents),
 			})
 		}
 	}
@@ -967,6 +989,22 @@ func (m Model) renderSidebarContent(width, height int) string {
 				lines = append(lines, headerStyle.Background(selectedBg).Render(rest))
 			} else {
 				lines = append(lines, headerStyle.Render(header))
+			}
+		} else if item.isExpander {
+			// Render expander item ("show N more")
+			expanderText := fmt.Sprintf("  \u25b6 %d more", item.hiddenCount)
+			if len(expanderText) > width {
+				expanderText = expanderText[:width]
+			}
+			if i == m.selectedIdx {
+				selectedBg := lipgloss.AdaptiveColor{Light: "254", Dark: "8"}
+				rest := expanderText
+				if len(rest) < width {
+					rest = rest + strings.Repeat(" ", width-len(rest))
+				}
+				lines = append(lines, doneStyle.Background(selectedBg).Render(rest))
+			} else {
+				lines = append(lines, doneStyle.Render(expanderText))
 			}
 		} else {
 			// Render agent
