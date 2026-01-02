@@ -19,6 +19,9 @@ import (
 
 const sidebarWidth = 23
 
+// selectionHighlightColor is the background color for selected text (256-color palette gray)
+var selectionHighlightColor = Color{Type: Color256, Value: 238}
+
 var (
 	// AdaptiveColor: Light = color on light bg, Dark = color on dark bg
 	activeStyle     = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "2", Dark: "10"})  // green
@@ -210,8 +213,6 @@ func (m *Model) applySelectionHighlight() []StyledLine {
 		end.Col = len(m.contentLines[end.Row])
 	}
 
-	highlightBG := Color{Type: Color256, Value: 238}
-
 	for row := start.Row; row <= end.Row; row++ {
 		startCol := 0
 		endCol := len(m.contentLines[row])
@@ -224,7 +225,7 @@ func (m *Model) applySelectionHighlight() []StyledLine {
 		}
 
 		if startCol < endCol {
-			result[row] = m.contentLines[row].WithSelection(startCol, endCol, highlightBG)
+			result[row] = m.contentLines[row].WithSelection(startCol, endCol, selectionHighlightColor)
 		}
 	}
 
