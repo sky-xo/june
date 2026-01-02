@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"golang.design/x/clipboard"
 )
 
@@ -920,25 +921,15 @@ func (m Model) renderSidebarContent(width, height int) string {
 }
 
 // truncateToWidth truncates a string (possibly with ANSI codes) to fit within maxWidth.
-// Uses binary search for efficiency instead of linear trimming.
+// Uses ANSI-aware truncation to avoid cutting through escape sequences.
 func truncateToWidth(s string, maxWidth int) string {
 	if lipgloss.Width(s) <= maxWidth {
 		return s
 	}
 
-	runes := []rune(s)
-	// Binary search for the right length
-	low, high := 0, len(runes)
-	for low < high {
-		mid := (low + high + 1) / 2
-		if lipgloss.Width(string(runes[:mid])) <= maxWidth {
-			low = mid
-		} else {
-			high = mid - 1
-		}
-	}
+	// Use ANSI-aware truncation that won't cut through escape sequences
+	result := ansi.Truncate(s, maxWidth, "")
 
-	result := string(runes[:low])
 	// Pad if needed
 	resultWidth := lipgloss.Width(result)
 	if resultWidth < maxWidth {
