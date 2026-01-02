@@ -395,6 +395,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Handle mouse events for text selection in right panel
+		if !inLeftPanel {
+			switch msg.Action {
+			case tea.MouseActionPress:
+				if msg.Button == tea.MouseButtonLeft {
+					// Start new selection
+					pos := m.screenToContentPosition(msg.X, msg.Y)
+					m.selection = SelectionState{
+						Active:   true,
+						Dragging: true,
+						Anchor:   pos,
+						Current:  pos,
+					}
+					return m, nil
+				}
+			case tea.MouseActionMotion:
+				if m.selection.Dragging {
+					// Update selection end point
+					m.selection.Current = m.screenToContentPosition(msg.X, msg.Y)
+					return m, nil
+				}
+			case tea.MouseActionRelease:
+				if msg.Button == tea.MouseButtonLeft && m.selection.Dragging {
+					// Finish dragging, keep selection active
+					m.selection.Current = m.screenToContentPosition(msg.X, msg.Y)
+					m.selection.Dragging = false
+
+					// If empty selection (click without drag), exit selection mode
+					if m.selection.IsEmpty() {
+						m.selection.Active = false
+					}
+					return m, nil
+				}
+			}
+		}
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height

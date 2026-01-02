@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"june/internal/claude"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestSelectionState_IsEmpty(t *testing.T) {
@@ -162,5 +164,153 @@ func TestModel_ScreenToContentPosition(t *testing.T) {
 					tt.screenX, tt.screenY, pos.Row, pos.Col, tt.expectedRow, tt.expectedCol)
 			}
 		})
+	}
+}
+
+func TestUpdate_MouseDragStartsSelection(t *testing.T) {
+	m := NewModel("/test")
+	m.width = 80
+	m.height = 24
+	m.focusedPanel = panelRight
+	m.viewport.Width = 50
+	m.viewport.Height = 10
+
+	content := "Line one\nLine two\nLine three"
+	m.viewport.SetContent(content)
+	m.contentLines = strings.Split(content, "\n")
+
+	// Simulate mouse press in content area
+	pressMsg := tea.MouseMsg{
+		X:      sidebarWidth + 5,
+		Y:      2,
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress,
+	}
+
+	newModel, _ := m.Update(pressMsg)
+	updated := newModel.(Model)
+
+	if !updated.selection.Active {
+		t.Error("Expected selection to be active after mouse press")
+	}
+	if !updated.selection.Dragging {
+		t.Error("Expected dragging to be true after mouse press")
+	}
+
+	// Verify anchor and current positions are set correctly
+	// X = sidebarWidth + 5, so col = 5 - 1 = 4 (subtracting panel border)
+	// Y = 2, so row = 2 - 1 + 0 (viewport offset) = 1
+	expectedPos := Position{Row: 1, Col: 4}
+	if updated.selection.Anchor != expectedPos {
+		t.Errorf("Expected Anchor %+v, got %+v", expectedPos, updated.selection.Anchor)
+	}
+	if updated.selection.Current != expectedPos {
+		t.Errorf("Expected Current %+v, got %+v", expectedPos, updated.selection.Current)
+	}
+}
+
+func TestUpdate_MouseReleaseStopsDragging(t *testing.T) {
+	m := NewModel("/test")
+	m.width = 80
+	m.height = 24
+	m.focusedPanel = panelRight
+	m.viewport.Width = 50
+	m.viewport.Height = 10
+	m.selection = SelectionState{
+		Active:   true,
+		Dragging: true,
+		Anchor:   Position{Row: 1, Col: 5},
+		Current:  Position{Row: 1, Col: 10},
+	}
+
+	content := "Line one\nLine two\nLine three"
+	m.viewport.SetContent(content)
+	m.contentLines = strings.Split(content, "\n")
+
+	// Simulate mouse release at a new position
+	releaseMsg := tea.MouseMsg{
+		X:      sidebarWidth + 15,
+		Y:      2,
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionRelease,
+	}
+
+	newModel, _ := m.Update(releaseMsg)
+	updated := newModel.(Model)
+
+	if !updated.selection.Active {
+		t.Error("Selection should remain active after release")
+	}
+	if updated.selection.Dragging {
+		t.Error("Dragging should be false after release")
+	}
+
+	// Verify anchor is preserved from the original selection
+	expectedAnchor := Position{Row: 1, Col: 5}
+	if updated.selection.Anchor != expectedAnchor {
+		t.Errorf("Expected Anchor to be preserved as %+v, got %+v", expectedAnchor, updated.selection.Anchor)
+	}
+
+	// Verify current position is updated to the release position
+	// X = sidebarWidth + 15, so col = 15 - 1 = 14 (subtracting panel border)
+	// Y = 2, so row = 2 - 1 + 0 (viewport offset) = 1
+	// However, col is clamped to line length: "Line two" has length 8
+	expectedCurrent := Position{Row: 1, Col: 8}
+	if updated.selection.Current != expectedCurrent {
+		t.Errorf("Expected Current %+v, got %+v", expectedCurrent, updated.selection.Current)
+	}
+}
+
+func TestUpdate_MouseMotionUpdatesSelection(t *testing.T) {
+	m := NewModel("/test")
+	m.width = 80
+	m.height = 24
+	m.focusedPanel = panelRight
+	m.viewport.Width = 50
+	m.viewport.Height = 10
+
+	content := "Line one\nLine two\nLine three"
+	m.viewport.SetContent(content)
+	m.contentLines = strings.Split(content, "\n")
+
+	// Set up an active dragging selection
+	m.selection = SelectionState{
+		Active:   true,
+		Dragging: true,
+		Anchor:   Position{Row: 0, Col: 2},
+		Current:  Position{Row: 0, Col: 2},
+	}
+
+	// Simulate mouse motion to a new position
+	motionMsg := tea.MouseMsg{
+		X:      sidebarWidth + 10,
+		Y:      3,
+		Button: tea.MouseButtonNone,
+		Action: tea.MouseActionMotion,
+	}
+
+	newModel, _ := m.Update(motionMsg)
+	updated := newModel.(Model)
+
+	// Verify selection remains active and dragging
+	if !updated.selection.Active {
+		t.Error("Selection should remain active during motion")
+	}
+	if !updated.selection.Dragging {
+		t.Error("Dragging should remain true during motion")
+	}
+
+	// Verify anchor is preserved
+	expectedAnchor := Position{Row: 0, Col: 2}
+	if updated.selection.Anchor != expectedAnchor {
+		t.Errorf("Expected Anchor to be preserved as %+v, got %+v", expectedAnchor, updated.selection.Anchor)
+	}
+
+	// Verify current position is updated to the motion position
+	// X = sidebarWidth + 10, so col = 10 - 1 = 9 (subtracting panel border)
+	// Y = 3, so row = 3 - 1 + 0 (viewport offset) = 2
+	expectedCurrent := Position{Row: 2, Col: 9}
+	if updated.selection.Current != expectedCurrent {
+		t.Errorf("Expected Current %+v, got %+v", expectedCurrent, updated.selection.Current)
 	}
 }
