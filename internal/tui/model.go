@@ -354,6 +354,20 @@ func (m Model) totalSidebarItems() int {
 	return len(m.sidebarItems())
 }
 
+// nextSelectableIdx finds the next selectable item index in the given direction.
+// Returns -1 if no selectable item found.
+func (m Model) nextSelectableIdx(fromIdx int, direction int) int {
+	items := m.sidebarItems()
+	total := len(items)
+
+	for idx := fromIdx + direction; idx >= 0 && idx < total; idx += direction {
+		if !items[idx].isHeader {
+			return idx
+		}
+	}
+	return -1
+}
+
 // SelectedAgent returns the currently selected agent, or nil if a header or expander is selected.
 func (m Model) SelectedAgent() *claude.Agent {
 	items := m.sidebarItems()
@@ -505,9 +519,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "up", "k":
 			if m.focusedPanel == panelLeft {
-				// Navigate agent list
-				if m.selectedIdx > 0 {
-					m.selectedIdx--
+				nextIdx := m.nextSelectableIdx(m.selectedIdx, -1)
+				if nextIdx != -1 {
+					m.selectedIdx = nextIdx
 					m.lastNavWasKeyboard = true
 					m.ensureSelectedVisible()
 					if agent := m.SelectedAgent(); agent != nil {
@@ -523,9 +537,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "down", "j":
 			if m.focusedPanel == panelLeft {
-				// Navigate sidebar list
-				if m.selectedIdx < m.totalSidebarItems()-1 {
-					m.selectedIdx++
+				nextIdx := m.nextSelectableIdx(m.selectedIdx, 1)
+				if nextIdx != -1 {
+					m.selectedIdx = nextIdx
 					m.lastNavWasKeyboard = true
 					m.ensureSelectedVisible()
 					if agent := m.SelectedAgent(); agent != nil {
@@ -689,12 +703,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil // Clicked on separator or indicator
 			}
 
-			if itemIdx >= 0 && itemIdx < m.totalSidebarItems() {
+			items := m.sidebarItems()
+			if itemIdx >= 0 && itemIdx < len(items) {
+				item := items[itemIdx]
+
+				// Skip headers - they're not selectable
+				if item.isHeader {
+					return m, nil
+				}
+
 				m.selectedIdx = itemIdx
 
 				// If clicked on an expander, toggle expansion
-				items := m.sidebarItems()
-				item := items[itemIdx]
 				if item.isExpander {
 					if m.expandedChannels[item.channelIdx] {
 						delete(m.expandedChannels, item.channelIdx)
@@ -796,6 +816,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case channelsMsg:
 		m.channels = msg
+		// After loading channels, ensure we're not on a header
+		if len(m.channels) > 0 {
+			items := m.sidebarItems()
+			if len(items) > 0 && m.selectedIdx < len(items) && items[m.selectedIdx].isHeader {
+				if nextIdx := m.nextSelectableIdx(m.selectedIdx, 1); nextIdx != -1 {
+					m.selectedIdx = nextIdx
+				}
+			}
+		}
 		if agent := m.SelectedAgent(); agent != nil {
 			m.lastViewedAgent = agent
 			cmds = append(cmds, loadTranscriptCmd(*agent))

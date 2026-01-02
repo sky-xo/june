@@ -896,6 +896,50 @@ func TestSidebarItems_ExpandedShowsAll(t *testing.T) {
 	}
 }
 
+func TestNavigationSkipsHeaders(t *testing.T) {
+	now := time.Now()
+	// Create two channels with agents
+	channels := []claude.Channel{
+		{
+			Name: "channel1",
+			Agents: []claude.Agent{
+				{ID: "agent1", LastMod: now.Add(-1 * time.Minute)},
+			},
+		},
+		{
+			Name: "channel2",
+			Agents: []claude.Agent{
+				{ID: "agent2", LastMod: now.Add(-2 * time.Minute)},
+			},
+		},
+	}
+
+	m := Model{
+		channels:         channels,
+		transcripts:      make(map[string][]claude.Entry),
+		expandedChannels: make(map[int]bool),
+		selectedIdx:      1, // Start on first agent (after first header)
+		focusedPanel:     panelLeft,
+	}
+	m.expandedChannels[0] = true
+	m.expandedChannels[1] = true
+
+	// Items should be: header0, agent1, header1, agent2
+	items := m.sidebarItems()
+	if len(items) != 4 {
+		t.Fatalf("expected 4 items, got %d", len(items))
+	}
+
+	// Navigate down from agent1 (idx 1) - should skip header1 and land on agent2 (idx 3)
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}
+	newM, _ := m.Update(msg)
+	m = newM.(Model)
+
+	if m.selectedIdx != 3 {
+		t.Errorf("expected selectedIdx=3 (agent2), got %d", m.selectedIdx)
+	}
+}
+
 func TestMouseClickExpandsExpander(t *testing.T) {
 	now := time.Now()
 	agents := []claude.Agent{
