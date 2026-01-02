@@ -617,6 +617,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.GotoTop()
 		case "G":
 			m.viewport.GotoBottom()
+		case "enter", " ":
+			if m.focusedPanel == panelLeft {
+				items := m.sidebarItems()
+				if m.selectedIdx >= 0 && m.selectedIdx < len(items) {
+					item := items[m.selectedIdx]
+					if item.isExpander {
+						// Toggle expansion for this channel
+						if m.expandedChannels[item.channelIdx] {
+							delete(m.expandedChannels, item.channelIdx)
+						} else {
+							m.expandedChannels[item.channelIdx] = true
+						}
+					}
+				}
+			}
 		}
 
 	case tea.MouseMsg:
@@ -991,8 +1006,8 @@ func (m Model) renderSidebarContent(width, height int) string {
 				lines = append(lines, headerStyle.Render(header))
 			}
 		} else if item.isExpander {
-			// Render expander item ("show N more")
-			expanderText := fmt.Sprintf("  \u25b6 %d more", item.hiddenCount)
+			// Render expander: "↓ N older"
+			expanderText := fmt.Sprintf("  \u2193 %d older", item.hiddenCount)
 			if len(expanderText) > width {
 				expanderText = expanderText[:width]
 			}
