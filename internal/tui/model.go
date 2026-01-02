@@ -75,6 +75,40 @@ func (s SelectionState) Normalize() (start, end Position) {
 	return s.Current, s.Anchor
 }
 
+// screenToContentPosition converts screen coordinates to content position
+// accounting for panel borders, sidebar width, and viewport scroll offset.
+func (m *Model) screenToContentPosition(screenX, screenY int) Position {
+	leftWidth, _, _, _ := m.layout()
+
+	// Convert screen X to content column
+	// Subtract: sidebar width + right panel left border (1)
+	col := screenX - leftWidth - 1
+	if col < 0 {
+		col = 0
+	}
+
+	// Convert screen Y to content row
+	// Subtract: top border (1), then add viewport scroll offset
+	row := screenY - 1 + m.viewport.YOffset
+	if row < 0 {
+		row = 0
+	}
+
+	// Clamp to valid content range
+	if len(m.contentLines) > 0 {
+		if row >= len(m.contentLines) {
+			row = len(m.contentLines) - 1
+		}
+		// Clamp column to line length (use visual width for ANSI content)
+		lineLen := lipgloss.Width(m.contentLines[row])
+		if col > lineLen {
+			col = lineLen
+		}
+	}
+
+	return Position{Row: row, Col: col}
+}
+
 // Model is the TUI state.
 type Model struct {
 	projectDir  string                    // Claude project directory we're watching

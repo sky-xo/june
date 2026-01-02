@@ -114,3 +114,53 @@ func TestModel_ContentLines(t *testing.T) {
 		t.Errorf("Expected contentLines to contain 'Hello world', got: %s", content)
 	}
 }
+
+func TestModel_ScreenToContentPosition(t *testing.T) {
+	m := NewModel("/test")
+	m.width = 80
+	m.height = 24
+	m.focusedPanel = panelRight
+
+	// Set up viewport dimensions (simulate layout)
+	m.viewport.Width = 50
+	m.viewport.Height = 10
+	m.viewport.YOffset = 0
+
+	// Set content
+	content := "Short\nA longer line here\nThird"
+	m.viewport.SetContent(content)
+	m.contentLines = strings.Split(content, "\n")
+
+	tests := []struct {
+		name        string
+		screenX     int
+		screenY     int
+		expectedRow int
+		expectedCol int
+	}{
+		{
+			name:        "first character of first line",
+			screenX:     sidebarWidth + 1, // After sidebar + left border
+			screenY:     1,                // After top border
+			expectedRow: 0,
+			expectedCol: 0,
+		},
+		{
+			name:        "middle of second line",
+			screenX:     sidebarWidth + 6, // 5 chars into content
+			screenY:     2,                // Second content line
+			expectedRow: 1,
+			expectedCol: 5,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pos := m.screenToContentPosition(tt.screenX, tt.screenY)
+			if pos.Row != tt.expectedRow || pos.Col != tt.expectedCol {
+				t.Errorf("screenToContentPosition(%d, %d) = {Row:%d, Col:%d}, want {Row:%d, Col:%d}",
+					tt.screenX, tt.screenY, pos.Row, pos.Col, tt.expectedRow, tt.expectedCol)
+			}
+		})
+	}
+}
