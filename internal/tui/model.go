@@ -76,14 +76,13 @@ func NewModel(claudeProjectsDir, basePath, repoName string) Model {
 }
 
 // SelectedAgent returns the currently selected agent, or nil if none.
+// NOTE: Temporary implementation using flat list until Task 4 updates navigation.
 func (m Model) SelectedAgent() *claude.Agent {
-	if len(m.channels) == 0 {
+	agents := m.agents()
+	if m.selectedIdx < 0 || m.selectedIdx >= len(agents) {
 		return nil
 	}
-	if len(m.channels[0].Agents) == 0 {
-		return nil
-	}
-	return &m.channels[0].Agents[0]
+	return &agents[m.selectedIdx]
 }
 
 // agents returns a flat list of all agents across all channels.
