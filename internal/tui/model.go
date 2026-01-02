@@ -691,6 +691,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			if itemIdx >= 0 && itemIdx < m.totalSidebarItems() {
 				m.selectedIdx = itemIdx
+
+				// If clicked on an expander, toggle expansion
+				items := m.sidebarItems()
+				item := items[itemIdx]
+				if item.isExpander {
+					if m.expandedChannels[item.channelIdx] {
+						delete(m.expandedChannels, item.channelIdx)
+					} else {
+						m.expandedChannels[item.channelIdx] = true
+					}
+				}
+
 				if agent := m.SelectedAgent(); agent != nil {
 					m.lastViewedAgent = agent
 					cmds = append(cmds, loadTranscriptCmd(*agent))

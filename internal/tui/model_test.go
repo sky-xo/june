@@ -895,3 +895,63 @@ func TestSidebarItems_ExpandedShowsAll(t *testing.T) {
 		}
 	}
 }
+
+func TestMouseClickExpandsExpander(t *testing.T) {
+	now := time.Now()
+	agents := []claude.Agent{
+		{ID: "active", LastMod: now.Add(-5 * time.Second)},
+		{ID: "old1", LastMod: now.Add(-24 * time.Hour)},
+		{ID: "old2", LastMod: now.Add(-48 * time.Hour)},
+	}
+
+	m := createModelWithAgents(agents, 80, 40)
+
+	// Find the expander index
+	items := m.sidebarItems()
+	expanderIdx := -1
+	for i, item := range items {
+		if item.isExpander {
+			expanderIdx = i
+			break
+		}
+	}
+	if expanderIdx == -1 {
+		t.Fatal("expected expander item")
+	}
+
+	// Channel should not be expanded initially
+	if m.expandedChannels[0] {
+		t.Fatal("channel should not be expanded initially")
+	}
+
+	// Simulate mouse click on expander
+	// Need to figure out the correct Y position based on line-to-item mapping
+	// For now, render to populate the mapping, then find the line
+	m.renderSidebarContent(30, 20)
+	expanderLine := -1
+	for line, idx := range m.lineToItemIdx {
+		if idx == expanderIdx {
+			expanderLine = line
+			break
+		}
+	}
+	if expanderLine == -1 {
+		t.Fatal("could not find expander line in mapping")
+	}
+
+	clickY := expanderLine + 1 // +1 for top border
+	msg := tea.MouseMsg{
+		X:      5,
+		Y:      clickY,
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionRelease,
+	}
+
+	newM, _ := m.Update(msg)
+	m = newM.(Model)
+
+	// Channel should now be expanded
+	if !m.expandedChannels[0] {
+		t.Error("channel should be expanded after clicking expander")
+	}
+}
