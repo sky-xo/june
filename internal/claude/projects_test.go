@@ -11,7 +11,7 @@ func TestPathToProjectDir(t *testing.T) {
 		absPath  string
 		expected string
 	}{
-		{"/Users/glowy/code/otto", "-Users-glowy-code-otto"},
+		{"/Users/glowy/code/june", "-Users-glowy-code-june"},
 		{"/home/user/project", "-home-user-project"},
 	}
 

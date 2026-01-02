@@ -6,8 +6,8 @@ import (
 )
 
 func TestIntegrationWithRealFiles(t *testing.T) {
-	// Skip if not in the otto project
-	projectDir := ProjectDir("/Users/glowy/code/otto")
+	// Skip if not in the june project
+	projectDir := ProjectDir("/Users/glowy/code/june")
 	if _, err := os.Stat(projectDir); os.IsNotExist(err) {
 		t.Skip("Skipping integration test: no Claude project directory found")
 	}

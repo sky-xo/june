@@ -74,8 +74,8 @@ func TestRepoRootRegularRepo(t *testing.T) {
 
 	// The project name should be "june" since we're in the june repo
 	project := filepath.Base(root)
-	if project != "otto" {
-		t.Fatalf("Expected project name 'otto', got %q", project)
+	if project != "june" {
+		t.Fatalf("Expected project name 'june', got %q", project)
 	}
 }
 

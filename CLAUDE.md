@@ -2,80 +2,56 @@
 
 ## What is June?
 
-June is a multi-agent orchestrator CLI that enables Claude Code to spawn and coordinate multiple AI agents (Claude Code and Codex) working in parallel.
+June is a read-only TUI for viewing Claude Code subagent activity. It watches `~/.claude/projects/{project}/agent-*.jsonl` files and displays their transcripts in a terminal interface.
 
 ## Quick Commands
 
 ```bash
 make build    # Build the binary
 make test     # Run all tests
-./june        # Run TUI (or: make watch)
+./june        # Run TUI
 ```
 
 ## Architecture
 
 ```
-~/.june/june.db   # Global SQLite database (project/branch columns in tables)
+~/.claude/projects/{project-path}/
+  agent-{id}.jsonl   # Subagent transcripts (read by June)
 ```
 
 **Packages:**
 - `cmd/june/` - Entry point
-- `internal/cli/` - Cobra root command
-- `internal/cli/commands/` - All CLI commands
-- `internal/repo/` - Database operations (agents, messages, tasks, logs)
-- `internal/db/` - SQLite schema and connection
+- `internal/cli/` - Cobra root command, launches TUI
+- `internal/claude/` - Agent file scanning and JSONL parsing
 - `internal/scope/` - Git project/branch detection
-- `internal/tui/` - Bubbletea TUI for watch command
-- `internal/exec/` - Process execution abstraction
+- `internal/tui/` - Bubbletea TUI
 
-## Key Commands
+## Usage
 
-| Command | Purpose |
-|---------|---------|
-| `june` | Launch TUI (same as `june watch`) |
-| `spawn <type> "<task>"` | Spawn claude/codex agent |
-| `prompt <agent> "<msg>"` | Send message to agent |
-| `dm/ask/complete` | Agent messaging |
-| `messages/status` | View messages and agent states |
+Run `june` in a git repository where Claude Code has been used:
+
+```bash
+june
+```
+
+The TUI shows:
+- Left panel: List of subagents (sorted by modification time)
+- Right panel: Selected agent's transcript
+- Activity indicators based on file modification time
+
+## Keyboard Shortcuts
+
+- `j`/`k` - Navigate agent list
+- `u`/`d` - Page up/down in transcript
+- `Tab` - Switch panel focus
+- `q` - Quit
 
 ## Coding Conventions
 
 - Follow TDD: write failing test, implement, verify
-- Use `repo` package for all database operations
-- Commands use `run*` functions for testability
-- Agents require `--id` flag, orchestrator commands reject it
-
-## Database Schema
-
-Four tables with project/branch scoping:
-- `agents` (project, branch, name, type, task, status, session_id, pid, compacted_at, ...)
-- `messages` (id, project, branch, from_agent, to_agent, type, content, mentions, ...)
-- `tasks` (project, branch, id, parent_id, name, sort_index, assigned_agent, result)
-- `logs` (id, project, branch, agent_name, agent_type, event_type, content, raw_json, ...)
+- Keep TUI logic in `internal/tui/`
+- Keep file parsing in `internal/claude/`
 
 ## Documentation
 
-- `TODO.md` - Feature status and next priorities
-- `docs/ARCHITECTURE.md` - How June works
-- `docs/SCENARIOS.md` - Usage scenarios / test cases
 - `docs/plans/` - Design docs and implementation plans
-
-## Documentation Conventions
-
-When brainstorming new features or design ideas:
-- Create `docs/plans/YYYY-MM-DD-<feature>-design.md`
-- Mark status at top: `Draft` → `Ready for review` → `Approved`
-- Keep TODO.md as quick overview, detailed design goes in plan files
-
-## Using June for Subagent Development
-
-See `.claude/skills/june-orchestrate/SKILL.md` for full details.
-
-**Key pattern:**
-1. Spawn with `run_in_background: true`
-2. Wait—you'll be notified automatically when the agent completes
-3. Use `BashOutput` to retrieve results
-
-You don't need to poll with `june status` or `june peek`—the notification comes automatically. But if things seem slow, feel free to check progress with `june peek <agent>`.
-
-**Progress:** Task 1.1 complete (commit ea21dd7, spec review passed). Next: Task 1.2.

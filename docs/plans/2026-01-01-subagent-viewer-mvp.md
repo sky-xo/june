@@ -154,7 +154,7 @@ Where `{path-with-dashes}` is the absolute path with `/` replaced by `-`.
 
 Example:
 ```
-/Users/glowy/code/otto → -Users-glowy-code-otto
+/Users/glowy/code/june → -Users-glowy-code-june
 ```
 
 ## Open Questions (Deferred)
