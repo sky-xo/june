@@ -160,8 +160,11 @@ func createTestAgents(n int) []claude.Agent {
 
 // createModelWithAgents creates a model with the given agents and dimensions
 func createModelWithAgents(agents []claude.Agent, width, height int) Model {
-	m := NewModel("/test")
-	m.agents = agents
+	m := NewModel("/test/claude/projects", "/test/repo", "repo")
+	// Create a single channel with the test agents
+	m.channels = []claude.Channel{
+		{Name: "repo:main", Dir: "/test/claude/projects/repo", Agents: agents},
+	}
 	m.width = width
 	m.height = height
 	return m
@@ -764,14 +767,11 @@ func TestUpdate_KKeyInMiddleOfSidebar_DoesNotScrollContent(t *testing.T) {
 }
 
 func TestRenderSidebarShowsDescription(t *testing.T) {
-	m := Model{
-		agents: []claude.Agent{
-			{ID: "abc123", Description: "Fix login bug"},
-			{ID: "def456", Description: ""},
-		},
-		width:  80,
-		height: 24,
+	agents := []claude.Agent{
+		{ID: "abc123", Description: "Fix login bug"},
+		{ID: "def456", Description: ""},
 	}
+	m := createModelWithAgents(agents, 80, 24)
 
 	content := m.renderSidebarContent(20, 10)
 
@@ -787,14 +787,11 @@ func TestRenderSidebarShowsDescription(t *testing.T) {
 }
 
 func TestViewShowsDescriptionAndIDInRightPanel(t *testing.T) {
-	m := Model{
-		agents: []claude.Agent{
-			{ID: "abc12345", Description: "Fix login bug", FilePath: "/tmp/test.jsonl"},
-		},
-		selectedIdx: 0,
-		width:       80,
-		height:      24,
+	agents := []claude.Agent{
+		{ID: "abc12345", Description: "Fix login bug", FilePath: "/tmp/test.jsonl"},
 	}
+	m := createModelWithAgents(agents, 80, 24)
+	m.selectedIdx = 0
 
 	view := m.View()
 
@@ -808,14 +805,11 @@ func TestViewShowsDescriptionAndIDInRightPanel(t *testing.T) {
 }
 
 func TestViewShowsOnlyIDWhenNoDescription(t *testing.T) {
-	m := Model{
-		agents: []claude.Agent{
-			{ID: "abc12345", Description: "", FilePath: "/tmp/test.jsonl"},
-		},
-		selectedIdx: 0,
-		width:       80,
-		height:      24,
+	agents := []claude.Agent{
+		{ID: "abc12345", Description: "", FilePath: "/tmp/test.jsonl"},
 	}
+	m := createModelWithAgents(agents, 80, 24)
+	m.selectedIdx = 0
 
 	view := m.View()
 

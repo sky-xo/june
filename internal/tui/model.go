@@ -47,12 +47,14 @@ const (
 
 // Model is the TUI state.
 type Model struct {
-	projectDir  string                    // Claude project directory we're watching
-	agents      []claude.Agent            // List of agents
-	transcripts map[string][]claude.Entry // Agent ID -> transcript entries
+	claudeProjectsDir string                    // Base Claude projects directory (~/.claude/projects)
+	basePath          string                    // Git repo base path
+	repoName          string                    // Repository name (e.g., "june")
+	channels          []claude.Channel          // Channels with their agents
+	transcripts       map[string][]claude.Entry // Agent ID -> transcript entries
 
-	selectedIdx        int  // Currently selected agent index
-	sidebarOffset      int  // Scroll offset for the sidebar (index of first visible agent)
+	selectedIdx        int  // Currently selected item index (across all channels + headers)
+	sidebarOffset      int  // Scroll offset for the sidebar
 	lastNavWasKeyboard bool // Track if last sidebar interaction was keyboard (for auto-scroll behavior)
 	focusedPanel       int  // Which panel has focus (panelLeft or panelRight)
 	width              int
@@ -62,21 +64,36 @@ type Model struct {
 }
 
 // NewModel creates a new TUI model.
-func NewModel(projectDir string) Model {
+func NewModel(claudeProjectsDir, basePath, repoName string) Model {
 	return Model{
-		projectDir:  projectDir,
-		agents:      []claude.Agent{},
-		transcripts: make(map[string][]claude.Entry),
-		viewport:    viewport.New(0, 0),
+		claudeProjectsDir: claudeProjectsDir,
+		basePath:          basePath,
+		repoName:          repoName,
+		channels:          []claude.Channel{},
+		transcripts:       make(map[string][]claude.Entry),
+		viewport:          viewport.New(0, 0),
 	}
 }
 
 // SelectedAgent returns the currently selected agent, or nil if none.
 func (m Model) SelectedAgent() *claude.Agent {
-	if m.selectedIdx < 0 || m.selectedIdx >= len(m.agents) {
+	if len(m.channels) == 0 {
 		return nil
 	}
-	return &m.agents[m.selectedIdx]
+	if len(m.channels[0].Agents) == 0 {
+		return nil
+	}
+	return &m.channels[0].Agents[0]
+}
+
+// agents returns a flat list of all agents across all channels.
+// This is a temporary helper for backward compatibility until Task 4 updates navigation.
+func (m Model) agents() []claude.Agent {
+	var result []claude.Agent
+	for _, ch := range m.channels {
+		result = append(result, ch.Agents...)
+	}
+	return result
 }
 
 // sidebarVisibleLines returns how many agent lines can be displayed in the sidebar,
@@ -94,7 +111,7 @@ func (m Model) sidebarVisibleLines() int {
 	}
 	// Reserve space for bottom indicator if there are more agents below
 	endIdx := m.sidebarOffset + lines
-	if endIdx < len(m.agents) {
+	if endIdx < len(m.agents()) {
 		lines--
 	}
 	if lines < 0 {
@@ -105,7 +122,7 @@ func (m Model) sidebarVisibleLines() int {
 
 // ensureSelectedVisible adjusts sidebarOffset to keep selectedIdx visible.
 func (m *Model) ensureSelectedVisible() {
-	if len(m.agents) == 0 {
+	if len(m.agents()) == 0 {
 		return
 	}
 
@@ -143,7 +160,7 @@ func (m *Model) ensureSelectedVisible() {
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		tickCmd(),
-		scanAgentsCmd(m.projectDir),
+		scanChannelsCmd(m.claudeProjectsDir, m.basePath, m.repoName),
 	)
 }
 
@@ -183,7 +200,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "down", "j":
 			if m.focusedPanel == panelLeft {
 				// Navigate agent list
-				if m.selectedIdx < len(m.agents)-1 {
+				if m.selectedIdx < len(m.agents())-1 {
 					m.selectedIdx++
 					m.lastNavWasKeyboard = true
 					m.ensureSelectedVisible()
@@ -239,7 +256,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if pageSize < 1 {
 					pageSize = 1
 				}
-				maxOffset := len(m.agents) - m.sidebarVisibleLines()
+				maxOffset := len(m.agents()) - m.sidebarVisibleLines()
 				if maxOffset < 0 {
 					maxOffset = 0
 				}
@@ -249,12 +266,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if m.sidebarOffset == maxOffset && oldOffset == maxOffset {
 					// Already at bottom, move selection to last item
-					m.selectedIdx = len(m.agents) - 1
+					m.selectedIdx = len(m.agents()) - 1
 				} else {
 					// Keep selection at same visual row
 					m.selectedIdx = m.sidebarOffset + visualRow
-					if m.selectedIdx >= len(m.agents) {
-						m.selectedIdx = len(m.agents) - 1
+					if m.selectedIdx >= len(m.agents()) {
+						m.selectedIdx = len(m.agents()) - 1
 					}
 				}
 				m.lastNavWasKeyboard = true
@@ -291,7 +308,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.MouseButtonWheelDown:
 			if inLeftPanel {
 				// Scroll sidebar down by 1 line
-				maxOffset := len(m.agents) - m.sidebarVisibleLines()
+				maxOffset := len(m.agents()) - m.sidebarVisibleLines()
 				if maxOffset < 0 {
 					maxOffset = 0
 				}
@@ -320,7 +337,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			visibleLines := m.sidebarVisibleLines()
 			if clickY >= 0 && clickY < visibleLines {
 				agentIdx := m.sidebarOffset + clickY
-				if agentIdx >= 0 && agentIdx < len(m.agents) {
+				if agentIdx >= 0 && agentIdx < len(m.agents()) {
 					m.selectedIdx = agentIdx
 					if agent := m.SelectedAgent(); agent != nil {
 						cmds = append(cmds, loadTranscriptCmd(*agent))
@@ -336,49 +353,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateViewport()
 
 	case tickMsg:
-		cmds = append(cmds, tickCmd(), scanAgentsCmd(m.projectDir))
+		cmds = append(cmds, tickCmd(), scanChannelsCmd(m.claudeProjectsDir, m.basePath, m.repoName))
 
-	case agentsMsg:
-		// Preserve selection by agent ID, not index position
-		var selectedID string
-		if m.selectedIdx >= 0 && m.selectedIdx < len(m.agents) {
-			selectedID = m.agents[m.selectedIdx].ID
-		}
-
-		prevLen := len(m.agents)
-		m.agents = msg
-
-		if prevLen == 0 && len(m.agents) > 0 {
-			// First agents appeared, select the first one
-			m.selectedIdx = 0
-		} else if selectedID != "" {
-			// Find the previously selected agent in the new list
-			found := false
-			for i, agent := range m.agents {
-				if agent.ID == selectedID {
-					m.selectedIdx = i
-					found = true
-					break
-				}
+	case channelsMsg:
+		m.channels = msg
+		// TODO: Update selection logic in Task 4
+		if len(m.channels) > 0 && len(m.channels[0].Agents) > 0 {
+			if agent := m.SelectedAgent(); agent != nil {
+				cmds = append(cmds, loadTranscriptCmd(*agent))
 			}
-			if !found {
-				// Agent no longer exists, keep selection at valid index
-				if m.selectedIdx >= len(m.agents) {
-					m.selectedIdx = len(m.agents) - 1
-				}
-				if m.selectedIdx < 0 {
-					m.selectedIdx = 0
-				}
-			}
-		}
-
-		// Only auto-scroll to keep selection visible after keyboard navigation,
-		// not after mouse scroll (let user scroll freely with mouse)
-		if m.lastNavWasKeyboard {
-			m.ensureSelectedVisible()
-		}
-		if agent := m.SelectedAgent(); agent != nil {
-			cmds = append(cmds, loadTranscriptCmd(*agent))
 		}
 
 	case transcriptMsg:
@@ -491,13 +474,14 @@ func (m Model) View() string {
 }
 
 func (m Model) renderSidebarContent(width, height int) string {
-	if len(m.agents) == 0 || height <= 0 {
+	agents := m.agents()
+	if len(agents) == 0 || height <= 0 {
 		return "No agents found"
 	}
 
 	// Calculate how many agents are hidden above and below
 	hiddenAbove := m.sidebarOffset
-	totalAgents := len(m.agents)
+	totalAgents := len(agents)
 
 	// Calculate available lines for agents (reserve lines for indicators if needed)
 	availableLines := height
@@ -536,7 +520,7 @@ func (m Model) renderSidebarContent(width, height int) string {
 
 	// Render visible agents
 	for i := m.sidebarOffset; i < visibleEnd; i++ {
-		agent := m.agents[i]
+		agent := agents[i]
 
 		// Determine indicator (without styling for selected row)
 		var indicator string
