@@ -13,9 +13,14 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"golang.design/x/clipboard"
 )
 
 const sidebarWidth = 23
+
+// selectionHighlightColor is the background color for selected text (256-color palette gray)
+var selectionHighlightColor = Color{Type: Color256, Value: 238}
 
 var (
 	// AdaptiveColor: Light = color on light bg, Dark = color on dark bg
@@ -37,6 +42,12 @@ var (
 
 	focusedBorderColor   = lipgloss.AdaptiveColor{Light: "#2E7D32", Dark: "#C8FB9E"} // green (darker on light, pale on dark)
 	unfocusedBorderColor = lipgloss.AdaptiveColor{Light: "243", Dark: "8"}           // gray
+
+	selectionIndicatorStyle = lipgloss.NewStyle().
+		Background(lipgloss.AdaptiveColor{Light: "#2E7D32", Dark: "#C8FB9E"}). // lime green (matches focused border)
+		Foreground(lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#000000"}). // contrasting text
+		Bold(true).
+		Padding(0, 1)
 )
 
 // Panel focus
@@ -44,6 +55,182 @@ const (
 	panelLeft  = 0
 	panelRight = 1
 )
+
+// Position represents a location in content (row = line number, col = character offset)
+type Position struct {
+	Row int // Line number in content (0-indexed)
+	Col int // Character position in line (0-indexed)
+}
+
+// SelectionState tracks text selection in the content panel
+type SelectionState struct {
+	Active   bool     // Whether selection mode is active
+	Anchor   Position // Where the drag started
+	Current  Position // Current drag position
+	Dragging bool     // Whether mouse button is currently held down
+}
+
+// IsEmpty returns true if there's no actual selection (same start and end, or not active)
+func (s SelectionState) IsEmpty() bool {
+	if !s.Active {
+		return true
+	}
+	return s.Anchor == s.Current
+}
+
+// Normalize returns start and end positions where start is always before end
+func (s SelectionState) Normalize() (start, end Position) {
+	if s.Anchor.Row < s.Current.Row || (s.Anchor.Row == s.Current.Row && s.Anchor.Col <= s.Current.Col) {
+		return s.Anchor, s.Current
+	}
+	return s.Current, s.Anchor
+}
+
+// screenToContentPosition converts screen coordinates to content position
+// accounting for panel borders, sidebar width, and viewport scroll offset.
+func (m *Model) screenToContentPosition(screenX, screenY int) Position {
+	leftWidth, _, _, _ := m.layout()
+
+	// Convert screen X to content column
+	// Subtract: sidebar width + right panel left border (1)
+	col := screenX - leftWidth - 1
+	if col < 0 {
+		col = 0
+	}
+
+	// Convert screen Y to content row
+	// Subtract: top border (1), then add viewport scroll offset
+	row := screenY - 1 + m.viewport.YOffset
+	if row < 0 {
+		row = 0
+	}
+
+	// Clamp to valid content range
+	if len(m.contentLines) > 0 {
+		if row >= len(m.contentLines) {
+			row = len(m.contentLines) - 1
+		}
+		// Clamp column to line length
+		lineLen := len(m.contentLines[row])
+		if col > lineLen {
+			col = lineLen
+		}
+	}
+
+	return Position{Row: row, Col: col}
+}
+
+// getSelectedText extracts the selected text from content
+func (m *Model) getSelectedText() string {
+	if !m.selection.Active || m.selection.IsEmpty() {
+		return ""
+	}
+
+	start, end := m.selection.Normalize()
+
+	if len(m.contentLines) == 0 || start.Row >= len(m.contentLines) {
+		return ""
+	}
+	if end.Row >= len(m.contentLines) {
+		end.Row = len(m.contentLines) - 1
+		end.Col = len(m.contentLines[end.Row])
+	}
+
+	var result strings.Builder
+
+	for row := start.Row; row <= end.Row; row++ {
+		line := m.contentLines[row]
+		lineLen := len(line)
+
+		startCol := 0
+		endCol := lineLen
+
+		if row == start.Row {
+			startCol = start.Col
+			if startCol > lineLen {
+				startCol = lineLen
+			}
+		}
+		if row == end.Row {
+			endCol = end.Col
+			if endCol > lineLen {
+				endCol = lineLen
+			}
+		}
+
+		if startCol < endCol {
+			// Extract plain text from cells
+			for i := startCol; i < endCol; i++ {
+				result.WriteRune(line[i].Char)
+			}
+		}
+
+		if row < end.Row {
+			result.WriteString("\n")
+		}
+	}
+
+	return result.String()
+}
+
+// copySelection copies the selected text to the system clipboard
+func (m *Model) copySelection() {
+	text := m.getSelectedText()
+	if text == "" {
+		return
+	}
+
+	// Initialize clipboard (safe to call multiple times)
+	if err := clipboard.Init(); err != nil {
+		return // Silently fail if clipboard unavailable
+	}
+
+	clipboard.Write(clipboard.FmtText, []byte(text))
+}
+
+// updateSelectionHighlight applies or clears selection highlighting in the viewport.
+// Call this when selection state changes (not on every scroll).
+func (m *Model) updateSelectionHighlight() {
+	m.renderViewportContent()
+}
+
+// applySelectionHighlight returns content lines with selection highlighting applied
+func (m *Model) applySelectionHighlight() []StyledLine {
+	if !m.selection.Active || m.selection.IsEmpty() || len(m.contentLines) == 0 {
+		return m.contentLines
+	}
+
+	start, end := m.selection.Normalize()
+	result := make([]StyledLine, len(m.contentLines))
+	copy(result, m.contentLines)
+
+	// Clamp to valid range
+	if start.Row >= len(m.contentLines) {
+		return result
+	}
+	if end.Row >= len(m.contentLines) {
+		end.Row = len(m.contentLines) - 1
+		end.Col = len(m.contentLines[end.Row])
+	}
+
+	for row := start.Row; row <= end.Row; row++ {
+		startCol := 0
+		endCol := len(m.contentLines[row])
+
+		if row == start.Row {
+			startCol = start.Col
+		}
+		if row == end.Row {
+			endCol = end.Col
+		}
+
+		if startCol < endCol {
+			result[row] = m.contentLines[row].WithSelection(startCol, endCol, selectionHighlightColor)
+		}
+	}
+
+	return result
+}
 
 // sidebarItem represents either a channel header or an agent in the sidebar.
 type sidebarItem struct {
@@ -62,14 +249,16 @@ type Model struct {
 	channels          []claude.Channel          // Channels with their agents
 	transcripts       map[string][]claude.Entry // Agent ID -> transcript entries
 
-	selectedIdx        int           // Currently selected item index (across all channels + headers)
-	lastViewedAgent    *claude.Agent // Last agent shown in right panel (persists when header selected)
-	sidebarOffset      int           // Scroll offset for the sidebar
-	lastNavWasKeyboard bool          // Track if last sidebar interaction was keyboard (for auto-scroll behavior)
-	focusedPanel       int           // Which panel has focus (panelLeft or panelRight)
+	selectedIdx        int            // Currently selected item index (across all channels + headers)
+	lastViewedAgent    *claude.Agent  // Last agent shown in right panel (persists when header selected)
+	sidebarOffset      int            // Scroll offset for the sidebar
+	lastNavWasKeyboard bool           // Track if last sidebar interaction was keyboard (for auto-scroll behavior)
+	focusedPanel       int            // Which panel has focus (panelLeft or panelRight)
+	selection          SelectionState // Text selection state
 	width              int
 	height             int
 	viewport           viewport.Model
+	contentLines       []StyledLine // Lines of content for selection mapping
 	err                error
 }
 
@@ -263,6 +452,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Handle selection mode keys first
+		if m.selection.Active {
+			switch msg.String() {
+			case "esc":
+				m.selection = SelectionState{}
+				m.updateSelectionHighlight()
+				return m, nil
+			case "c":
+				m.copySelection()
+				m.selection = SelectionState{}
+				m.updateSelectionHighlight()
+				return m, nil
+			}
+			// In selection mode, block other keys except quit
+			if msg.String() != "q" && msg.String() != "ctrl+c" {
+				return m, nil
+			}
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -389,6 +597,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		leftWidth, _, _, _ := m.layout()
 		inLeftPanel := msg.X < leftWidth
 
+		// If selection is active and user clicks in left panel, cancel selection
+		if m.selection.Active && inLeftPanel && msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionRelease {
+			m.selection = SelectionState{}
+			m.updateSelectionHighlight()
+			// Don't return here - let the click also select an agent if applicable
+		}
+
 		// Handle scroll wheel (check button type directly, wheel events always work)
 		switch msg.Button {
 		case tea.MouseButtonWheelUp:
@@ -440,6 +655,81 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.lastViewedAgent = agent
 						cmds = append(cmds, loadTranscriptCmd(*agent))
 					}
+				}
+			}
+		}
+
+		// Handle mouse events for text selection in right panel
+		if !inLeftPanel {
+			switch msg.Action {
+			case tea.MouseActionPress:
+				if msg.Button == tea.MouseButtonLeft {
+					// Start new selection
+					pos := m.screenToContentPosition(msg.X, msg.Y)
+					m.selection = SelectionState{
+						Active:   true,
+						Dragging: true,
+						Anchor:   pos,
+						Current:  pos,
+					}
+					// Don't update highlighting yet - wait for drag or release
+					return m, nil
+				}
+			case tea.MouseActionMotion:
+				if m.selection.Dragging {
+					// Update selection end point
+					newPos := m.screenToContentPosition(msg.X, msg.Y)
+					selectionChanged := newPos != m.selection.Current
+					if selectionChanged {
+						m.selection.Current = newPos
+					}
+
+					// Auto-scroll if near edges
+					_, _, _, contentHeight := m.layout()
+					edgeThreshold := 2
+
+					// Y position relative to content area (subtract top border)
+					relativeY := msg.Y - 1
+
+					if relativeY <= edgeThreshold && m.viewport.YOffset > 0 {
+						// Near top edge - scroll up
+						m.viewport.LineUp(1)
+						// Update selection to follow scroll
+						newPos = m.screenToContentPosition(msg.X, msg.Y)
+						if newPos != m.selection.Current {
+							m.selection.Current = newPos
+							selectionChanged = true
+						}
+					} else if relativeY >= contentHeight-edgeThreshold {
+						// Near bottom edge - scroll down
+						m.viewport.LineDown(1)
+						// Update selection to follow scroll
+						newPos = m.screenToContentPosition(msg.X, msg.Y)
+						if newPos != m.selection.Current {
+							m.selection.Current = newPos
+							selectionChanged = true
+						}
+					}
+
+					// Only update highlighting when selection actually changed
+					if selectionChanged {
+						m.updateSelectionHighlight()
+					}
+
+					return m, nil
+				}
+			case tea.MouseActionRelease:
+				if msg.Button == tea.MouseButtonLeft && m.selection.Dragging {
+					// Finish dragging, keep selection active
+					m.selection.Current = m.screenToContentPosition(msg.X, msg.Y)
+					m.selection.Dragging = false
+
+					// If empty selection (click without drag), exit selection mode
+					if m.selection.IsEmpty() {
+						m.selection.Active = false
+					}
+					m.updateSelectionHighlight()
+					return m, nil
 				}
 			}
 		}
@@ -496,10 +786,35 @@ func (m *Model) updateViewport() {
 	agent := m.lastViewedAgent
 	if agent == nil {
 		m.viewport.SetContent("")
+		m.contentLines = nil
 		return
 	}
 	entries := m.transcripts[agent.ID]
-	m.viewport.SetContent(formatTranscript(entries, m.viewport.Width))
+	content := formatTranscript(entries, m.viewport.Width)
+
+	// Parse ANSI content into StyledLines
+	lines := strings.Split(content, "\n")
+	m.contentLines = make([]StyledLine, len(lines))
+	for i, line := range lines {
+		m.contentLines[i] = ParseStyledLine(line)
+	}
+
+	// Render for viewport (apply selection if active)
+	m.renderViewportContent()
+}
+
+// renderViewportContent renders contentLines to viewport, applying selection if active
+func (m *Model) renderViewportContent() {
+	lines := m.contentLines
+	if m.selection.Active && !m.selection.IsEmpty() {
+		lines = m.applySelectionHighlight()
+	}
+
+	rendered := make([]string, len(lines))
+	for i, line := range lines {
+		rendered[i] = line.Render()
+	}
+	m.viewport.SetContent(strings.Join(rendered, "\n"))
 }
 
 // layout calculates panel dimensions
@@ -560,7 +875,20 @@ func (m Model) View() string {
 			rightTitle = fmt.Sprintf("%s | %s", agent.ID, formatTimestamp(agent.LastMod))
 		}
 	}
-	rightPanel := renderPanelWithTitle(rightTitle, m.viewport.View(), rightWidth, panelHeight, rightBorderColor)
+
+	// Add selection indicator to title
+	if m.selection.Active && !m.selection.IsEmpty() {
+		indicator := selectionIndicatorStyle.Render("SELECTING · C: copy · Esc: cancel")
+		if rightTitle != "" {
+			rightTitle = rightTitle + " " + indicator
+		} else {
+			rightTitle = indicator
+		}
+	}
+
+	// Viewport content is already set in Update() with selection highlighting if active
+	rightContent := m.viewport.View()
+	rightPanel := renderPanelWithTitle(rightTitle, rightContent, rightWidth, panelHeight, rightBorderColor)
 
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
@@ -687,17 +1015,40 @@ func (m Model) renderSidebarContent(width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
+// truncateToWidth truncates a string (possibly with ANSI codes) to fit within maxWidth.
+// Uses ANSI-aware truncation to avoid cutting through escape sequences.
+func truncateToWidth(s string, maxWidth int) string {
+	if lipgloss.Width(s) <= maxWidth {
+		return s
+	}
+
+	// Use ANSI-aware truncation that won't cut through escape sequences
+	result := ansi.Truncate(s, maxWidth, "")
+
+	// Ensure styles are reset after truncation to prevent bleeding
+	result = result + "\x1b[0m"
+
+	// Pad if needed (reset has 0 visual width so this is still correct)
+	resultWidth := lipgloss.Width(result)
+	if resultWidth < maxWidth {
+		result = result + strings.Repeat(" ", maxWidth-resultWidth)
+	}
+	return result
+}
+
 // renderPanelWithTitle renders a panel with the title embedded in the top border
 // like: ╭─ Title ────────╮
 // This is copied from the old working TUI code.
 func renderPanelWithTitle(title, content string, width, height int, borderColor lipgloss.TerminalColor) string {
 	// Border characters (rounded)
-	topLeft := "╭"
-	topRight := "╮"
-	bottomLeft := "╰"
-	bottomRight := "╯"
-	horizontal := "─"
-	vertical := "│"
+	const (
+		topLeft     = "╭"
+		topRight    = "╮"
+		bottomLeft  = "╰"
+		bottomRight = "╯"
+		horizontal  = "─"
+		vertical    = "│"
+	)
 
 	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
 	titleStyle := lipgloss.NewStyle().Foreground(borderColor).Bold(true)
@@ -708,13 +1059,17 @@ func renderPanelWithTitle(title, content string, width, height int, borderColor 
 		contentWidth = 0
 	}
 
+	// Pre-render border characters once
+	leftBorder := borderStyle.Render(vertical)
+	rightBorder := borderStyle.Render(vertical)
+
 	// Build top border with embedded title
 	var topBorder string
 	if title == "" {
 		topBorder = borderStyle.Render(topLeft + strings.Repeat(horizontal, contentWidth) + topRight)
 	} else {
 		titleText := " " + title + " "
-		titleLen := len([]rune(titleText))
+		titleLen := lipgloss.Width(titleText) // Use visual width for ANSI-aware measurement
 
 		remainingWidth := contentWidth - titleLen
 		leftDashes := 1
@@ -738,8 +1093,10 @@ func renderPanelWithTitle(title, content string, width, height int, borderColor 
 		contentLines = 0
 	}
 
+	// Pre-allocate with exact capacity
+	middleLines := make([]string, 0, contentLines)
+
 	// Render middle lines with side borders
-	var middleLines []string
 	for i := 0; i < contentLines; i++ {
 		var line string
 		if i < len(lines) {
@@ -748,20 +1105,16 @@ func renderPanelWithTitle(title, content string, width, height int, borderColor 
 		// Use lipgloss.Width for visual width (handles ANSI codes)
 		visualWidth := lipgloss.Width(line)
 		if visualWidth < contentWidth {
-			line = line + strings.Repeat(" ", contentWidth-visualWidth)
+			// Reset any active styles before padding to prevent background color bleeding
+			line = line + "\x1b[0m" + strings.Repeat(" ", contentWidth-visualWidth)
 		} else if visualWidth > contentWidth {
-			// Truncate line to fit
-			runes := []rune(line)
-			for len(runes) > 0 && lipgloss.Width(string(runes)) > contentWidth {
-				runes = runes[:len(runes)-1]
-			}
-			line = string(runes)
-			// Pad if truncation left us short
-			if lipgloss.Width(line) < contentWidth {
-				line = line + strings.Repeat(" ", contentWidth-lipgloss.Width(line))
-			}
+			// Truncate line (includes reset after truncation)
+			line = truncateToWidth(line, contentWidth)
+		} else {
+			// Exact width - still reset styles to prevent bleeding into borders
+			line = line + "\x1b[0m"
 		}
-		middleLines = append(middleLines, borderStyle.Render(vertical)+line+borderStyle.Render(vertical))
+		middleLines = append(middleLines, leftBorder+line+rightBorder)
 	}
 
 	// Join all parts
