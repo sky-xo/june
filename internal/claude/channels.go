@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 )
 
 // Channel represents a group of agents from a branch/worktree.
@@ -117,24 +116,15 @@ func ScanChannels(claudeProjectsDir, basePath, repoName string) ([]Channel, erro
 		})
 	}
 
-	// Sort channels by most recent agent (first agent in each channel is most recent due to ScanAgents sorting)
+	// Sort channels: recent-activity first (alphabetical), then inactive (alphabetical)
 	sort.Slice(channels, func(i, j int) bool {
-		// Channels with active agents come first
-		iHasActive := len(channels[i].Agents) > 0 && channels[i].Agents[0].IsActive()
-		jHasActive := len(channels[j].Agents) > 0 && channels[j].Agents[0].IsActive()
-		if iHasActive != jHasActive {
-			return iHasActive
+		iRecent := channels[i].HasRecentActivity()
+		jRecent := channels[j].HasRecentActivity()
+		if iRecent != jRecent {
+			return iRecent // recent channels come first
 		}
-
-		// Then by most recent agent modification time
-		var iTime, jTime time.Time
-		if len(channels[i].Agents) > 0 {
-			iTime = channels[i].Agents[0].LastMod
-		}
-		if len(channels[j].Agents) > 0 {
-			jTime = channels[j].Agents[0].LastMod
-		}
-		return iTime.After(jTime)
+		// Within same activity group, sort alphabetically by name
+		return channels[i].Name < channels[j].Name
 	})
 
 	return channels, nil

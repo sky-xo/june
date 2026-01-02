@@ -150,6 +150,57 @@ func TestChannel_HasRecentActivity(t *testing.T) {
 	}
 }
 
+func TestScanChannels_SortsByActivityThenAlphabetical(t *testing.T) {
+	tmpDir := t.TempDir()
+	claudeProjects := filepath.Join(tmpDir, ".claude", "projects")
+
+	now := time.Now()
+	// Use different times within the "recent" window to ensure we're testing
+	// alphabetical sort, not just time-based sort. Zebra is MORE recent than beta,
+	// but beta should come first alphabetically.
+	zebraTime := now.Add(-30 * time.Minute) // more recent
+	betaTime := now.Add(-1 * time.Hour)     // less recent, but both are "recent"
+	alphaTime := now.Add(-48 * time.Hour)   // older
+	gammaTime := now.Add(-24 * time.Hour)   // gamma is more recent than alpha, but both are "old"
+
+	// Create channels: zebra (recent), alpha (old), beta (recent), gamma (old)
+	dirs := []struct {
+		name    string
+		modTime time.Time
+	}{
+		{"-Users-test-code-proj--worktrees-zebra", zebraTime},
+		{"-Users-test-code-proj--worktrees-alpha", alphaTime},
+		{"-Users-test-code-proj--worktrees-beta", betaTime},
+		{"-Users-test-code-proj--worktrees-gamma", gammaTime},
+	}
+
+	for _, d := range dirs {
+		dir := filepath.Join(claudeProjects, d.name)
+		os.MkdirAll(dir, 0755)
+		agentFile := filepath.Join(dir, "agent-test.jsonl")
+		os.WriteFile(agentFile, []byte(`{"type":"user","message":{"role":"user","content":"Test"}}`+"\n"), 0644)
+		os.Chtimes(agentFile, d.modTime, d.modTime)
+	}
+
+	channels, err := ScanChannels(claudeProjects, "/Users/test/code/proj", "proj")
+	if err != nil {
+		t.Fatalf("ScanChannels failed: %v", err)
+	}
+
+	// Expected order: recent channels alphabetically (beta, zebra), then old alphabetically (alpha, gamma)
+	expectedOrder := []string{"proj:beta", "proj:zebra", "proj:alpha", "proj:gamma"}
+
+	if len(channels) != 4 {
+		t.Fatalf("expected 4 channels, got %d", len(channels))
+	}
+
+	for i, ch := range channels {
+		if ch.Name != expectedOrder[i] {
+			t.Errorf("channel[%d] = %s, want %s", i, ch.Name, expectedOrder[i])
+		}
+	}
+}
+
 func TestScanChannels_Integration(t *testing.T) {
 	// Create a structure mimicking real June worktrees
 	tmpDir := t.TempDir()
