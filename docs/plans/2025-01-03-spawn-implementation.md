@@ -10,6 +10,51 @@
 
 ---
 
+## CURRENT STATUS (2026-01-03)
+
+### ✅ ALL IMPLEMENTATION COMPLETE
+
+All 9 tasks have been implemented and committed. The branch is ready to merge.
+
+**Commits on `spawn` branch:**
+1. `5a1d9e2` chore: add sqlite dependency
+2. `e53b004` feat(db): add sqlite database package with schema
+3. `58338d6` feat(db): add agent CRUD operations
+4. `6f45a0a` feat(codex): add session file finder
+5. `3df044e` feat(cli): add spawn command
+6. `f7643b4` feat(cli): add peek command with transcript reader
+7. `8bd70b3` feat(cli): add logs command
+8. `676161e` docs: add spawn design and update CLAUDE.md
+9. `93f8fd2` chore: mark sqlite as direct dependency
+10. `8bf7793` fix(codex): update transcript parser for actual Codex event format
+
+**All tests pass:** `go test ./...`
+
+**Commands working:**
+- `june spawn codex "task" --name <name>` - spawns Codex agent, streams JSON, creates DB record
+- `june peek <name>` - shows new output since last peek, advances cursor
+- `june logs <name>` - shows full transcript from beginning
+
+**Tested with real Codex agent:** Spawned `reviewer-3` agent successfully, logs/peek display transcript correctly.
+
+### NEXT STEP: Finish the branch
+
+Use `superpowers:finishing-a-development-branch` skill to:
+1. Verify tests pass (they do)
+2. Present 4 options to user (merge locally, create PR, keep as-is, discard)
+3. Execute chosen option
+
+The user was presented with the 4 options before context ran low. They wanted to test spawn functionality first. Testing is complete and working.
+
+### Code Quality Notes (from reviews, non-blocking)
+
+Minor improvements that could be done in follow-up:
+- Add `rows.Err()` check in `ListAgents()` (db.go)
+- Add `UpdateSessionFile()` method to db package instead of raw SQL in CLI
+- Handle `os.UserHomeDir()` errors in `juneHome()` and `CodexHome()`
+
+---
+
 ## Task 1: Add SQLite dependency
 
 **Files:**
