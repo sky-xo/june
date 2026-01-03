@@ -1,0 +1,154 @@
+package cli
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+
+	"github.com/sky-xo/june/internal/codex"
+	"github.com/sky-xo/june/internal/db"
+	"github.com/spf13/cobra"
+)
+
+func newSpawnCmd() *cobra.Command {
+	var name string
+
+	cmd := &cobra.Command{
+		Use:   "spawn <type> <task>",
+		Short: "Spawn an agent",
+		Long:  "Spawn a Codex agent to perform a task",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			agentType := args[0]
+			task := args[1]
+
+			if agentType != "codex" {
+				return fmt.Errorf("unsupported agent type: %s (only 'codex' is supported)", agentType)
+			}
+
+			if name == "" {
+				return fmt.Errorf("--name is required")
+			}
+
+			return runSpawnCodex(name, task)
+		},
+	}
+
+	cmd.Flags().StringVar(&name, "name", "", "Name for the agent (required)")
+	cmd.MarkFlagRequired("name")
+
+	return cmd
+}
+
+func runSpawnCodex(name, task string) error {
+	// Open database
+	home, err := juneHome()
+	if err != nil {
+		return fmt.Errorf("failed to get june home: %w", err)
+	}
+	dbPath := filepath.Join(home, "june.db")
+	database, err := db.Open(dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to open database: %w", err)
+	}
+	defer database.Close()
+
+	// Check if agent already exists
+	if _, err := database.GetAgent(name); err == nil {
+		return fmt.Errorf("agent %q already exists", name)
+	} else if err != db.ErrAgentNotFound {
+		return fmt.Errorf("failed to check for existing agent: %w", err)
+	}
+
+	// Start codex exec --json
+	codexCmd := exec.Command("codex", "exec", "--json", task)
+	codexCmd.Stderr = os.Stderr
+
+	stdout, err := codexCmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to get stdout pipe: %w", err)
+	}
+
+	if err := codexCmd.Start(); err != nil {
+		return fmt.Errorf("failed to start codex: %w", err)
+	}
+
+	// Read first line to get thread_id
+	scanner := bufio.NewScanner(stdout)
+	var threadID string
+	if scanner.Scan() {
+		var event struct {
+			Type     string `json:"type"`
+			ThreadID string `json:"thread_id"`
+		}
+		if err := json.Unmarshal(scanner.Bytes(), &event); err == nil {
+			if event.Type == "thread.started" {
+				threadID = event.ThreadID
+			}
+		}
+		// Echo this line to stdout
+		fmt.Println(scanner.Text())
+	}
+
+	if threadID == "" {
+		codexCmd.Process.Kill()
+		codexCmd.Wait() // Reap the killed process
+		return fmt.Errorf("failed to get thread_id from codex output")
+	}
+
+	// Find the session file
+	codexHome, err := codex.CodexHome()
+	if err != nil {
+		return fmt.Errorf("failed to get codex home: %w", err)
+	}
+	sessionFile, err := codex.FindSessionFile(codexHome, threadID)
+	if err != nil {
+		// Session file might not exist yet, construct expected path
+		// For now, we'll store it and look it up later
+		sessionFile = "" // Will be populated later
+	}
+
+	// Create agent record
+	agent := db.Agent{
+		Name:        name,
+		ULID:        threadID,
+		SessionFile: sessionFile,
+		PID:         codexCmd.Process.Pid,
+	}
+	if err := database.CreateAgent(agent); err != nil {
+		return fmt.Errorf("failed to create agent record: %w", err)
+	}
+
+	// Stream remaining output
+	for scanner.Scan() {
+		fmt.Println(scanner.Text())
+	}
+
+	// Wait for process to finish
+	if err := codexCmd.Wait(); err != nil {
+		fmt.Fprintf(os.Stderr, "codex exited with error: %v\n", err)
+	}
+
+	// Update session file if we didn't have it
+	if sessionFile == "" {
+		if found, err := codex.FindSessionFile(codexHome, threadID); err == nil {
+			// Update the agent record with the session file
+			if err := database.UpdateSessionFile(name, found); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to update session file: %v\n", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func juneHome() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get user home directory: %w", err)
+	}
+	return filepath.Join(home, ".june"), nil
+}
