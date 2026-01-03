@@ -83,6 +83,20 @@ func TestParseEntryFunctionCallOutputTruncation(t *testing.T) {
 	}
 }
 
+func TestParseEntryMessage(t *testing.T) {
+	// Actual Codex format for message: type is "response_item", payload.type is "message", payload.text has content
+	data := []byte(`{"type":"response_item","payload":{"type":"message","text":"Here is my response to your question"}}`)
+
+	entry := parseEntry(data)
+
+	if entry.Type != "message" {
+		t.Errorf("Type = %q, want %q", entry.Type, "message")
+	}
+	if entry.Content != "Here is my response to your question" {
+		t.Errorf("Content = %q, want %q", entry.Content, "Here is my response to your question")
+	}
+}
+
 func TestReadTranscriptWithRealFormat(t *testing.T) {
 	tmpDir := t.TempDir()
 	sessionFile := filepath.Join(tmpDir, "session.jsonl")

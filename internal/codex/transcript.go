@@ -76,6 +76,11 @@ func parseEntry(data []byte) TranscriptEntry {
 				}
 			}
 		}
+	case "message":
+		// response_item with payload.type = "message", payload.text = content
+		if text, ok := payload["text"].(string); ok {
+			return TranscriptEntry{Type: "message", Content: text}
+		}
 	case "function_call":
 		// response_item with payload.type = "function_call", payload.name = tool name
 		if name, ok := payload["name"].(string); ok {
