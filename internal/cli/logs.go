@@ -1,0 +1,66 @@
+package cli
+
+import (
+	"fmt"
+	"path/filepath"
+
+	"github.com/sky-xo/june/internal/codex"
+	"github.com/sky-xo/june/internal/db"
+	"github.com/spf13/cobra"
+)
+
+func newLogsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "logs <name>",
+		Short: "Show full transcript from an agent",
+		Long:  "Show full transcript without advancing the cursor",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+			return runLogs(name)
+		},
+	}
+}
+
+func runLogs(name string) error {
+	// Open database
+	dbPath := filepath.Join(juneHome(), "june.db")
+	database, err := db.Open(dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to open database: %w", err)
+	}
+	defer database.Close()
+
+	// Get agent
+	agent, err := database.GetAgent(name)
+	if err == db.ErrAgentNotFound {
+		return fmt.Errorf("agent %q not found", name)
+	}
+	if err != nil {
+		return err
+	}
+
+	// Find session file if not set
+	sessionFile := agent.SessionFile
+	if sessionFile == "" {
+		found, err := codex.FindSessionFile(codex.CodexHome(), agent.ULID)
+		if err != nil {
+			return fmt.Errorf("session file not found for agent %q", name)
+		}
+		sessionFile = found
+	}
+
+	// Read from beginning (cursor 0), don't update cursor
+	entries, _, err := codex.ReadTranscript(sessionFile, 0)
+	if err != nil {
+		return fmt.Errorf("failed to read transcript: %w", err)
+	}
+
+	if len(entries) == 0 {
+		fmt.Println("(no output)")
+		return nil
+	}
+
+	fmt.Print(codex.FormatEntries(entries))
+	return nil
+}
