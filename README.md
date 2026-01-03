@@ -11,18 +11,12 @@ A subagent viewer for Claude Code.
 
 ## Installation
 
-Install with Go:
-
 ```bash
+# macOS
+brew install sky-xo/tap/june --cask
+
+# Go (any platform)
 go install github.com/sky-xo/june@latest
-```
-
-Or build from source:
-
-```bash
-git clone https://github.com/sky-xo/june
-cd june
-make build
 ```
 
 ## Usage

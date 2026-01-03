@@ -20,7 +20,7 @@ make test     # Run all tests
 ```
 
 **Packages:**
-- `cmd/june/` - Entry point
+- `main.go` - Entry point
 - `internal/cli/` - Cobra root command, launches TUI
 - `internal/claude/` - Agent file scanning and JSONL parsing
 - `internal/scope/` - Git project/branch detection
@@ -38,18 +38,6 @@ The TUI shows:
 - Left panel: List of subagents (sorted by modification time)
 - Right panel: Selected agent's transcript
 - Activity indicators based on file modification time
-
-## Keyboard Shortcuts
-
-- `j`/`k` - Navigate agent list
-- `u`/`d` - Page up/down in transcript
-- `Tab` - Switch panel focus
-- `q` - Quit
-
-### Selection Mode (mouse-initiated)
-- Click+drag in transcript - Start text selection
-- `C` - Copy selection to clipboard and exit
-- `Esc` - Exit selection mode without copying
 
 ## Coding Conventions
 
