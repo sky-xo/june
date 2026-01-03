@@ -6,7 +6,7 @@ A subagent viewer for Claude Code.
 
 ## What It Shows
 
-- List of all subagents spawned in your current project
+- List of all subagents spawned in your project (grouped by branch)
 - Real-time transcript of each agent's conversation
 
 ## Installation
@@ -34,15 +34,6 @@ june
 ```
 
 The TUI will launch showing any subagents that have been spawned in that project.
-
-## Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| `Tab` | Switch focus between panels |
-| `j` / `k` | Navigate up/down |
-| `u` / `d` | Page up/down in transcript |
-| `q` | Quit |
 
 ## How It Works
 
