@@ -4,11 +4,11 @@ VERSION ?= v0.1.0
 
 # Build the june binary
 build:
-	go build -ldflags "-X github.com/sky-xo/june/internal/cli.Version=$(VERSION)" -o june ./cmd/june
+	go build -ldflags "-X github.com/sky-xo/june/internal/cli.Version=$(VERSION)" -o june .
 
 # Install to $GOPATH/bin
 install:
-	go install -ldflags "-X github.com/sky-xo/june/internal/cli.Version=$(VERSION)" ./cmd/june
+	go install -ldflags "-X github.com/sky-xo/june/internal/cli.Version=$(VERSION)" .
 
 # Run all tests
 test:
@@ -24,4 +24,4 @@ clean:
 
 # Build and run the TUI watch
 watch:
-	go build -o june ./cmd/june && ./june watch
+	go build -o june . && ./june watch
