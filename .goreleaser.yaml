@@ -1,0 +1,69 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+project_name: june
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: june
+    main: ./main.go
+    binary: june
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/sky-xo/june/internal/cli.version={{.Version}}
+
+archives:
+  - id: june-archive
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE*
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "Merge pull request"
+      - "Merge branch"
+
+brews:
+  - name: june
+    repository:
+      owner: sky-xo
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/sky-xo/june"
+    description: "A read-only TUI for viewing Claude Code subagent activity"
+    license: "MIT"
+    install: |
+      bin.install "june"
+    test: |
+      system "#{bin}/june", "--help"
+
+release:
+  github:
+    owner: sky-xo
+    name: june
+  draft: false
+  prerelease: auto
+  name_template: "v{{ .Version }}"
