@@ -147,14 +147,19 @@ func TestUpdateSessionFile(t *testing.T) {
 		SessionFile: "",
 		PID:         12345,
 	}
-	db.CreateAgent(agent)
+	if err := db.CreateAgent(agent); err != nil {
+		t.Fatalf("CreateAgent failed: %v", err)
+	}
 
 	err := db.UpdateSessionFile("impl-1", "/path/to/session.jsonl")
 	if err != nil {
 		t.Fatalf("UpdateSessionFile failed: %v", err)
 	}
 
-	got, _ := db.GetAgent("impl-1")
+	got, err := db.GetAgent("impl-1")
+	if err != nil {
+		t.Fatalf("GetAgent failed: %v", err)
+	}
 	if got.SessionFile != "/path/to/session.jsonl" {
 		t.Errorf("SessionFile = %q, want %q", got.SessionFile, "/path/to/session.jsonl")
 	}
