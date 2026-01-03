@@ -12,6 +12,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	golang.design/x/clipboard v0.7.1
 	golang.org/x/term v0.38.0
+	modernc.org/sqlite v1.42.2
 )
 
 require (
@@ -53,5 +54,4 @@ require (
 	modernc.org/libc v1.66.10 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.42.2 // indirect
 )
