@@ -1,6 +1,6 @@
 package main
 
-import "june/internal/cli"
+import "github.com/sky-xo/june/internal/cli"
 
 func main() {
 	cli.Execute()

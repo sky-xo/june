@@ -5,9 +5,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"june/internal/claude"
-	"june/internal/scope"
-	"june/internal/tui"
+	"github.com/sky-xo/june/internal/claude"
+	"github.com/sky-xo/june/internal/scope"
+	"github.com/sky-xo/june/internal/tui"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"june/internal/claude"
+	"github.com/sky-xo/june/internal/claude"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

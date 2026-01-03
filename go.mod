@@ -1,4 +1,4 @@
-module june
+module github.com/sky-xo/june
 
 go 1.25.4
 

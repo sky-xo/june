@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"june/internal/claude"
+	"github.com/sky-xo/june/internal/claude"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"

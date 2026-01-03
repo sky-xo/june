@@ -12,7 +12,7 @@ A subagent viewer for Claude Code.
 Install with Go:
 
 ```bash
-go install github.com/sky-xo/june@latest
+go install github.com/sky-xo/june/cmd/june@latest
 ```
 
 Or build from source:
@@ -37,9 +37,9 @@ The TUI will launch showing any subagents that have been spawned in that project
 
 | Key | Action |
 |-----|--------|
-| `j` / `k` | Navigate up/down in agent list |
-| `u` / `d` | Page up/down in transcript |
 | `Tab` | Switch focus between panels |
+| `j` / `k` | Navigate up/down |
+| `u` / `d` | Page up/down in transcript |
 | `q` | Quit |
 
 ## How It Works
