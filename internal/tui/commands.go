@@ -4,6 +4,7 @@ package tui
 import (
 	"time"
 
+	"github.com/sky-xo/june/internal/agent"
 	"github.com/sky-xo/june/internal/claude"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -12,7 +13,7 @@ import (
 // Messages for the TUI
 type (
 	tickMsg       time.Time
-	channelsMsg   []claude.Channel // Changed from agentsMsg
+	channelsMsg   []agent.Channel
 	transcriptMsg struct {
 		agentID string
 		entries []claude.Entry
@@ -30,7 +31,8 @@ func tickCmd() tea.Cmd {
 // scanChannelsCmd scans for channels and their agents.
 func scanChannelsCmd(claudeProjectsDir, basePath, repoName string) tea.Cmd {
 	return func() tea.Msg {
-		channels, err := claude.ScanChannels(claudeProjectsDir, basePath, repoName)
+		// TODO: Pass actual db connection for Codex agent integration
+		channels, err := claude.ScanChannels(claudeProjectsDir, basePath, repoName, nil)
 		if err != nil {
 			return errMsg(err)
 		}
@@ -39,14 +41,14 @@ func scanChannelsCmd(claudeProjectsDir, basePath, repoName string) tea.Cmd {
 }
 
 // loadTranscriptCmd loads a transcript from a file.
-func loadTranscriptCmd(agent claude.Agent) tea.Cmd {
+func loadTranscriptCmd(a agent.Agent) tea.Cmd {
 	return func() tea.Msg {
-		entries, err := claude.ParseTranscript(agent.FilePath)
+		entries, err := claude.ParseTranscript(a.TranscriptPath)
 		if err != nil {
 			return errMsg(err)
 		}
 		return transcriptMsg{
-			agentID: agent.ID,
+			agentID: a.ID,
 			entries: entries,
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sky-xo/june/internal/agent"
 	"github.com/sky-xo/june/internal/claude"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -146,25 +147,25 @@ func searchString(s, substr string) bool {
 }
 
 // createTestAgents creates N test agents for testing.
-// All agents are created with recent LastMod times (within 2 hours) so they all pass filtering.
-func createTestAgents(n int) []claude.Agent {
-	agents := make([]claude.Agent, n)
+// All agents are created with recent LastActivity times (within 2 hours) so they all pass filtering.
+func createTestAgents(n int) []agent.Agent {
+	agents := make([]agent.Agent, n)
 	for i := 0; i < n; i++ {
-		agents[i] = claude.Agent{
-			ID:       "agent" + string(rune('A'+i)),
-			FilePath: "/test/agent-" + string(rune('A'+i)) + ".jsonl",
-			LastMod:  time.Now().Add(-time.Duration(i) * time.Minute), // Use minutes to keep all recent
+		agents[i] = agent.Agent{
+			ID:             "agent" + string(rune('A'+i)),
+			TranscriptPath: "/test/agent-" + string(rune('A'+i)) + ".jsonl",
+			LastActivity:   time.Now().Add(-time.Duration(i) * time.Minute), // Use minutes to keep all recent
 		}
 	}
 	return agents
 }
 
 // createModelWithAgents creates a model with the given agents and dimensions
-func createModelWithAgents(agents []claude.Agent, width, height int) Model {
+func createModelWithAgents(agents []agent.Agent, width, height int) Model {
 	m := NewModel("/test/claude/projects", "/test/repo", "repo")
 	// Create a single channel with the test agents
-	m.channels = []claude.Channel{
-		{Name: "repo:main", Dir: "/test/claude/projects/repo", Agents: agents},
+	m.channels = []agent.Channel{
+		{Name: "repo:main", Agents: agents},
 	}
 	// Set lastViewedAgent to first agent if available (for right panel display)
 	if len(agents) > 0 {
@@ -342,7 +343,7 @@ func TestSidebarVisibleLines_WithTopIndicator(t *testing.T) {
 func TestRenderSidebarContent_EmptyAgents(t *testing.T) {
 	// With no channels at all, should show "No agents found"
 	m := NewModel("/test/claude/projects", "/test/repo", "repo")
-	m.channels = []claude.Channel{} // No channels
+	m.channels = []agent.Channel{} // No channels
 	m.width = 25
 	m.height = 10
 
@@ -780,28 +781,28 @@ func TestUpdate_KKeyInMiddleOfSidebar_DoesNotScrollContent(t *testing.T) {
 
 func TestRenderSidebarShowsDescription(t *testing.T) {
 	now := time.Now()
-	agents := []claude.Agent{
-		{ID: "abc123", Description: "Fix login bug", LastMod: now.Add(-1 * time.Minute)},
-		{ID: "def456", Description: "", LastMod: now.Add(-2 * time.Minute)},
+	agents := []agent.Agent{
+		{ID: "abc123", Name: "Fix login bug", LastActivity: now.Add(-1 * time.Minute)},
+		{ID: "def456", Name: "", LastActivity: now.Add(-2 * time.Minute)},
 	}
 	m := createModelWithAgents(agents, 80, 24)
 
 	content := m.renderSidebarContent(20, 10)
 
-	// Should show description when available
+	// Should show name when available
 	if !strings.Contains(content, "Fix login bug") {
-		t.Errorf("expected sidebar to contain description, got: %s", content)
+		t.Errorf("expected sidebar to contain name, got: %s", content)
 	}
 
-	// Should fall back to ID when no description
+	// Should fall back to ID when no name
 	if !strings.Contains(content, "def456") {
-		t.Errorf("expected sidebar to contain agent ID when no description, got: %s", content)
+		t.Errorf("expected sidebar to contain agent ID when no name, got: %s", content)
 	}
 }
 
 func TestViewShowsDescriptionAndIDInRightPanel(t *testing.T) {
-	agents := []claude.Agent{
-		{ID: "abc12345", Description: "Fix login bug", FilePath: "/tmp/test.jsonl", LastMod: time.Now()},
+	agents := []agent.Agent{
+		{ID: "abc12345", Name: "Fix login bug", TranscriptPath: "/tmp/test.jsonl", LastActivity: time.Now()},
 	}
 	m := createModelWithAgents(agents, 80, 24)
 	// With channel headers, index 0 is the header, index 1 is the first agent
@@ -809,9 +810,9 @@ func TestViewShowsDescriptionAndIDInRightPanel(t *testing.T) {
 
 	view := m.View()
 
-	// Should show "Description (ID) | timestamp" format
+	// Should show "Name (ID) | timestamp" format
 	if !strings.Contains(view, "Fix login bug") {
-		t.Errorf("expected description in right panel, got: %s", view)
+		t.Errorf("expected name in right panel, got: %s", view)
 	}
 	if !strings.Contains(view, "(abc12345)") {
 		t.Errorf("expected ID in parentheses in right panel, got: %s", view)
@@ -819,8 +820,8 @@ func TestViewShowsDescriptionAndIDInRightPanel(t *testing.T) {
 }
 
 func TestViewShowsOnlyIDWhenNoDescription(t *testing.T) {
-	agents := []claude.Agent{
-		{ID: "abc12345", Description: "", FilePath: "/tmp/test.jsonl", LastMod: time.Now()},
+	agents := []agent.Agent{
+		{ID: "abc12345", Name: "", TranscriptPath: "/tmp/test.jsonl", LastActivity: time.Now()},
 	}
 	m := createModelWithAgents(agents, 80, 24)
 	// With channel headers, index 0 is the header, index 1 is the first agent
@@ -828,23 +829,23 @@ func TestViewShowsOnlyIDWhenNoDescription(t *testing.T) {
 
 	view := m.View()
 
-	// Should fall back to just ID when no description
+	// Should fall back to just ID when no name
 	if !strings.Contains(view, "abc12345") {
 		t.Errorf("expected agent ID in right panel, got: %s", view)
 	}
 	// Should NOT have empty parentheses
 	if strings.Contains(view, "()") {
-		t.Errorf("should not show empty parentheses when no description, got: %s", view)
+		t.Errorf("should not show empty parentheses when no name, got: %s", view)
 	}
 }
 
 func TestSidebarItems_FiltersOldAgents(t *testing.T) {
 	now := time.Now()
-	agents := []claude.Agent{
-		{ID: "active", LastMod: now.Add(-5 * time.Second)},   // active
-		{ID: "recent", LastMod: now.Add(-1 * time.Hour)},     // recent
-		{ID: "old1", LastMod: now.Add(-24 * time.Hour)},      // old
-		{ID: "old2", LastMod: now.Add(-48 * time.Hour)},      // old
+	agents := []agent.Agent{
+		{ID: "active", LastActivity: now.Add(-5 * time.Second)},   // active
+		{ID: "recent", LastActivity: now.Add(-1 * time.Hour)},     // recent
+		{ID: "old1", LastActivity: now.Add(-24 * time.Hour)},      // old
+		{ID: "old2", LastActivity: now.Add(-48 * time.Hour)},      // old
 	}
 
 	m := createModelWithAgents(agents, 80, 40)
@@ -873,10 +874,10 @@ func TestSidebarItems_FiltersOldAgents(t *testing.T) {
 
 func TestSidebarItems_ExpandedShowsAll(t *testing.T) {
 	now := time.Now()
-	agents := []claude.Agent{
-		{ID: "active", LastMod: now.Add(-5 * time.Second)},
-		{ID: "old1", LastMod: now.Add(-24 * time.Hour)},
-		{ID: "old2", LastMod: now.Add(-48 * time.Hour)},
+	agents := []agent.Agent{
+		{ID: "active", LastActivity: now.Add(-5 * time.Second)},
+		{ID: "old1", LastActivity: now.Add(-24 * time.Hour)},
+		{ID: "old2", LastActivity: now.Add(-48 * time.Hour)},
 	}
 
 	m := createModelWithAgents(agents, 80, 40)
@@ -899,17 +900,17 @@ func TestSidebarItems_ExpandedShowsAll(t *testing.T) {
 func TestNavigationSkipsHeaders(t *testing.T) {
 	now := time.Now()
 	// Create two channels with agents
-	channels := []claude.Channel{
+	channels := []agent.Channel{
 		{
 			Name: "channel1",
-			Agents: []claude.Agent{
-				{ID: "agent1", LastMod: now.Add(-1 * time.Minute)},
+			Agents: []agent.Agent{
+				{ID: "agent1", LastActivity: now.Add(-1 * time.Minute)},
 			},
 		},
 		{
 			Name: "channel2",
-			Agents: []claude.Agent{
-				{ID: "agent2", LastMod: now.Add(-2 * time.Minute)},
+			Agents: []agent.Agent{
+				{ID: "agent2", LastActivity: now.Add(-2 * time.Minute)},
 			},
 		},
 	}
@@ -942,10 +943,10 @@ func TestNavigationSkipsHeaders(t *testing.T) {
 
 func TestMouseClickExpandsExpander(t *testing.T) {
 	now := time.Now()
-	agents := []claude.Agent{
-		{ID: "active", LastMod: now.Add(-5 * time.Second)},
-		{ID: "old1", LastMod: now.Add(-24 * time.Hour)},
-		{ID: "old2", LastMod: now.Add(-48 * time.Hour)},
+	agents := []agent.Agent{
+		{ID: "active", LastActivity: now.Add(-5 * time.Second)},
+		{ID: "old1", LastActivity: now.Add(-24 * time.Hour)},
+		{ID: "old2", LastActivity: now.Add(-48 * time.Hour)},
 	}
 
 	m := createModelWithAgents(agents, 80, 40)

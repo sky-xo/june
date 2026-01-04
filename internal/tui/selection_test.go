@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sky-xo/june/internal/agent"
 	"github.com/sky-xo/june/internal/claude"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -90,9 +91,9 @@ func TestModel_ContentLines(t *testing.T) {
 	m.height = 24
 
 	// Set up channels and transcripts like the real application
-	testAgent := claude.Agent{ID: "test-agent", FilePath: "/test/agent.jsonl"}
-	m.channels = []claude.Channel{
-		{Name: "test-channel", Agents: []claude.Agent{testAgent}},
+	testAgent := agent.Agent{ID: "test-agent", TranscriptPath: "/test/agent.jsonl"}
+	m.channels = []agent.Channel{
+		{Name: "test-channel", Agents: []agent.Agent{testAgent}},
 	}
 	m.selectedIdx = 1 // First agent (index 0 is header)
 	m.lastViewedAgent = &m.channels[0].Agents[0]
@@ -381,7 +382,7 @@ func TestUpdate_NavigationKeysBlockedInSelectionMode(t *testing.T) {
 	m := NewModel("/claude", "/test", "test-repo")
 	m.selection = SelectionState{Active: true, Anchor: Position{Row: 1, Col: 5}, Current: Position{Row: 2, Col: 10}}
 	m.selectedIdx = 1
-	m.channels = []claude.Channel{{Name: "ch", Agents: []claude.Agent{{ID: "a1", FilePath: "/tmp/a1.jsonl"}, {ID: "a2", FilePath: "/tmp/a2.jsonl"}}}}
+	m.channels = []agent.Channel{{Name: "ch", Agents: []agent.Agent{{ID: "a1", TranscriptPath: "/tmp/a1.jsonl"}, {ID: "a2", TranscriptPath: "/tmp/a2.jsonl"}}}}
 
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}
 	newModel, _ := m.Update(msg)
@@ -573,8 +574,8 @@ func TestView_ShowsSelectionIndicator(t *testing.T) {
 	m := NewModel("/claude", "/test", "test-repo")
 	m.width = 80
 	m.height = 24
-	testAgent := claude.Agent{ID: "test123", FilePath: "/tmp/test.jsonl"}
-	m.channels = []claude.Channel{{Name: "ch", Agents: []claude.Agent{testAgent}}}
+	testAgent := agent.Agent{ID: "test123", TranscriptPath: "/tmp/test.jsonl"}
+	m.channels = []agent.Channel{{Name: "ch", Agents: []agent.Agent{testAgent}}}
 	m.selectedIdx = 1
 	m.lastViewedAgent = &m.channels[0].Agents[0]
 	m.selection = SelectionState{
@@ -599,8 +600,8 @@ func TestView_NoSelectionIndicatorWhenInactive(t *testing.T) {
 	m := NewModel("/claude", "/test", "test-repo")
 	m.width = 80
 	m.height = 24
-	testAgent := claude.Agent{ID: "test123", FilePath: "/tmp/test.jsonl"}
-	m.channels = []claude.Channel{{Name: "ch", Agents: []claude.Agent{testAgent}}}
+	testAgent := agent.Agent{ID: "test123", TranscriptPath: "/tmp/test.jsonl"}
+	m.channels = []agent.Channel{{Name: "ch", Agents: []agent.Agent{testAgent}}}
 	m.selectedIdx = 1
 	m.lastViewedAgent = &m.channels[0].Agents[0]
 	m.selection = SelectionState{Active: false}
