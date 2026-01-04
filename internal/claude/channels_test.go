@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/sky-xo/june/internal/agent"
+	"github.com/sky-xo/june/internal/db"
 )
 
 func TestFindRelatedProjectDirs(t *testing.T) {
@@ -96,7 +99,7 @@ func TestScanChannels(t *testing.T) {
 	futureTime := time.Now().Add(time.Hour)
 	os.Chtimes(filepath.Join(worktreeDir, "agent-def456.jsonl"), futureTime, futureTime)
 
-	channels, err := ScanChannels(claudeProjects, "/Users/test/code/myproject", "myproject")
+	channels, err := ScanChannels(claudeProjects, "/Users/test/code/myproject", "myproject", nil)
 	if err != nil {
 		t.Fatalf("ScanChannels failed: %v", err)
 	}
@@ -113,36 +116,44 @@ func TestScanChannels(t *testing.T) {
 		t.Errorf("expected second channel to be myproject:main, got %s", channels[1].Name)
 	}
 
-	// Check agents are present
+	// Check agents are present - now using unified agent type
 	if len(channels[0].Agents) != 1 || channels[0].Agents[0].ID != "def456" {
 		t.Errorf("unexpected agents in feature1 channel: %v", channels[0].Agents)
 	}
 	if len(channels[1].Agents) != 1 || channels[1].Agents[0].ID != "abc123" {
 		t.Errorf("unexpected agents in main channel: %v", channels[1].Agents)
 	}
+
+	// Verify unified agent fields
+	if channels[0].Agents[0].Source != agent.SourceClaude {
+		t.Errorf("expected source to be claude, got %s", channels[0].Agents[0].Source)
+	}
+	if channels[0].Agents[0].Branch != "feature1" {
+		t.Errorf("expected branch to be feature1, got %s", channels[0].Agents[0].Branch)
+	}
 }
 
 func TestChannel_HasRecentActivity(t *testing.T) {
 	now := time.Now()
 
-	recentAgent := Agent{ID: "recent", LastMod: now.Add(-1 * time.Hour)}
-	oldAgent := Agent{ID: "old", LastMod: now.Add(-24 * time.Hour)}
-	activeAgent := Agent{ID: "active", LastMod: now.Add(-5 * time.Second)}
+	recentAgent := agent.Agent{ID: "recent", LastActivity: now.Add(-1 * time.Hour)}
+	oldAgent := agent.Agent{ID: "old", LastActivity: now.Add(-24 * time.Hour)}
+	activeAgent := agent.Agent{ID: "active", LastActivity: now.Add(-5 * time.Second)}
 
 	tests := []struct {
 		name     string
-		agents   []Agent
+		agents   []agent.Agent
 		expected bool
 	}{
-		{"has active agent", []Agent{activeAgent, oldAgent}, true},
-		{"has recent agent", []Agent{recentAgent, oldAgent}, true},
-		{"only old agents", []Agent{oldAgent}, false},
-		{"empty", []Agent{}, false},
+		{"has active agent", []agent.Agent{activeAgent, oldAgent}, true},
+		{"has recent agent", []agent.Agent{recentAgent, oldAgent}, true},
+		{"only old agents", []agent.Agent{oldAgent}, false},
+		{"empty", []agent.Agent{}, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ch := Channel{Agents: tt.agents}
+			ch := agent.Channel{Agents: tt.agents}
 			if got := ch.HasRecentActivity(); got != tt.expected {
 				t.Errorf("HasRecentActivity() = %v, want %v", got, tt.expected)
 			}
@@ -182,7 +193,7 @@ func TestScanChannels_SortsByActivityThenAlphabetical(t *testing.T) {
 		os.Chtimes(agentFile, d.modTime, d.modTime)
 	}
 
-	channels, err := ScanChannels(claudeProjects, "/Users/test/code/proj", "proj")
+	channels, err := ScanChannels(claudeProjects, "/Users/test/code/proj", "proj", nil)
 	if err != nil {
 		t.Fatalf("ScanChannels failed: %v", err)
 	}
@@ -224,7 +235,7 @@ func TestScanChannels_Integration(t *testing.T) {
 		}
 	}
 
-	channels, err := ScanChannels(claudeProjects, "/Users/test/code/june", "june")
+	channels, err := ScanChannels(claudeProjects, "/Users/test/code/june", "june", nil)
 	if err != nil {
 		t.Fatalf("ScanChannels failed: %v", err)
 	}
@@ -247,5 +258,108 @@ func TestScanChannels_Integration(t *testing.T) {
 	}
 	if !names["june:select-mode"] {
 		t.Error("missing june:select-mode channel")
+	}
+}
+
+func TestScanChannels_MergesCodexAgents(t *testing.T) {
+	// Create temp directory structure
+	tmpDir := t.TempDir()
+	claudeProjects := filepath.Join(tmpDir, ".claude", "projects")
+
+	// Create one Claude project dir with an agent
+	mainDir := filepath.Join(claudeProjects, "-Users-test-code-myproject")
+	os.MkdirAll(mainDir, 0755)
+	os.WriteFile(filepath.Join(mainDir, "agent-claude1.jsonl"), []byte(`{"type":"user","message":{"role":"user","content":"Claude task"}}`+"\n"), 0644)
+
+	// Create a real DB with Codex agents
+	dbPath := filepath.Join(tmpDir, "test.db")
+	testDB, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	defer testDB.Close()
+
+	// Add a Codex agent on the same branch
+	err = testDB.CreateAgent(db.Agent{
+		Name:        "codex-agent",
+		ULID:        "codex123",
+		SessionFile: "/tmp/session.jsonl",
+		RepoPath:    "/Users/test/code/myproject",
+		Branch:      "main",
+	})
+	if err != nil {
+		t.Fatalf("failed to create agent: %v", err)
+	}
+
+	// Add a Codex agent on a different branch
+	err = testDB.CreateAgent(db.Agent{
+		Name:        "codex-feature",
+		ULID:        "codex456",
+		SessionFile: "/tmp/session2.jsonl",
+		RepoPath:    "/Users/test/code/myproject",
+		Branch:      "feature",
+	})
+	if err != nil {
+		t.Fatalf("failed to create agent: %v", err)
+	}
+
+	channels, err := ScanChannels(claudeProjects, "/Users/test/code/myproject", "myproject", testDB)
+	if err != nil {
+		t.Fatalf("ScanChannels failed: %v", err)
+	}
+
+	// Should have 2 channels: main (with Claude + Codex) and feature (Codex only)
+	if len(channels) != 2 {
+		t.Fatalf("expected 2 channels, got %d", len(channels))
+	}
+
+	// Find channels by name
+	var mainChannel, featureChannel *agent.Channel
+	for i := range channels {
+		if channels[i].Name == "myproject:main" {
+			mainChannel = &channels[i]
+		}
+		if channels[i].Name == "myproject:feature" {
+			featureChannel = &channels[i]
+		}
+	}
+
+	if mainChannel == nil {
+		t.Fatal("missing myproject:main channel")
+	}
+	if featureChannel == nil {
+		t.Fatal("missing myproject:feature channel")
+	}
+
+	// Main channel should have 2 agents (1 Claude + 1 Codex)
+	if len(mainChannel.Agents) != 2 {
+		t.Errorf("expected 2 agents in main channel, got %d", len(mainChannel.Agents))
+	}
+
+	// Feature channel should have 1 agent (Codex only)
+	if len(featureChannel.Agents) != 1 {
+		t.Errorf("expected 1 agent in feature channel, got %d", len(featureChannel.Agents))
+	}
+
+	// Verify sources are correct
+	var hasClaude, hasCodex bool
+	for _, a := range mainChannel.Agents {
+		if a.Source == agent.SourceClaude {
+			hasClaude = true
+		}
+		if a.Source == agent.SourceCodex {
+			hasCodex = true
+		}
+	}
+	if !hasClaude {
+		t.Error("main channel missing Claude agent")
+	}
+	if !hasCodex {
+		t.Error("main channel missing Codex agent")
+	}
+
+	// Feature channel should only have Codex
+	if featureChannel.Agents[0].Source != agent.SourceCodex {
+		t.Errorf("expected feature agent to be codex, got %s", featureChannel.Agents[0].Source)
 	}
 }

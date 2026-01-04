@@ -10,6 +10,7 @@ import (
 
 	"github.com/sky-xo/june/internal/codex"
 	"github.com/sky-xo/june/internal/db"
+	"github.com/sky-xo/june/internal/scope"
 	"github.com/spf13/cobra"
 )
 
@@ -44,6 +45,11 @@ func newSpawnCmd() *cobra.Command {
 }
 
 func runSpawnCodex(name, task string) error {
+	// Capture git context before spawning
+	// Non-fatal if not in a git repo - we just won't have channel info
+	repoPath := scope.RepoRoot()
+	branch := scope.BranchName()
+
 	// Open database
 	home, err := juneHome()
 	if err != nil {
@@ -63,9 +69,16 @@ func runSpawnCodex(name, task string) error {
 		return fmt.Errorf("failed to check for existing agent: %w", err)
 	}
 
+	// Before creating the command, ensure isolated codex home
+	isolatedCodexHome, err := codex.EnsureCodexHome()
+	if err != nil {
+		return fmt.Errorf("failed to setup isolated codex home: %w", err)
+	}
+
 	// Start codex exec --json
 	codexCmd := exec.Command("codex", "exec", "--json", task)
 	codexCmd.Stderr = os.Stderr
+	codexCmd.Env = append(os.Environ(), fmt.Sprintf("CODEX_HOME=%s", isolatedCodexHome))
 
 	stdout, err := codexCmd.StdoutPipe()
 	if err != nil {
@@ -89,8 +102,6 @@ func runSpawnCodex(name, task string) error {
 				threadID = event.ThreadID
 			}
 		}
-		// Echo this line to stdout
-		fmt.Println(scanner.Text())
 	}
 
 	if threadID == "" {
@@ -100,11 +111,7 @@ func runSpawnCodex(name, task string) error {
 	}
 
 	// Find the session file
-	codexHome, err := codex.CodexHome()
-	if err != nil {
-		return fmt.Errorf("failed to get codex home: %w", err)
-	}
-	sessionFile, err := codex.FindSessionFile(codexHome, threadID)
+	sessionFile, err := codex.FindSessionFile(threadID)
 	if err != nil {
 		// Session file might not exist yet, construct expected path
 		// For now, we'll store it and look it up later
@@ -117,14 +124,16 @@ func runSpawnCodex(name, task string) error {
 		ULID:        threadID,
 		SessionFile: sessionFile,
 		PID:         codexCmd.Process.Pid,
+		RepoPath:    repoPath,
+		Branch:      branch,
 	}
 	if err := database.CreateAgent(agent); err != nil {
 		return fmt.Errorf("failed to create agent record: %w", err)
 	}
 
-	// Stream remaining output
+	// Drain remaining output (without printing)
 	for scanner.Scan() {
-		fmt.Println(scanner.Text())
+		// Consume output silently
 	}
 
 	// Wait for process to finish
@@ -134,7 +143,7 @@ func runSpawnCodex(name, task string) error {
 
 	// Update session file if we didn't have it
 	if sessionFile == "" {
-		if found, err := codex.FindSessionFile(codexHome, threadID); err == nil {
+		if found, err := codex.FindSessionFile(threadID); err == nil {
 			// Update the agent record with the session file
 			if err := database.UpdateSessionFile(name, found); err != nil {
 				fmt.Fprintf(os.Stderr, "warning: failed to update session file: %v\n", err)
