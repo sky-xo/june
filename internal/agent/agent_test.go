@@ -56,3 +56,23 @@ func TestAgent_IsRecent(t *testing.T) {
 		t.Error("agent modified 3h ago should not be recent")
 	}
 }
+
+func TestChannel_HasRecentActivity(t *testing.T) {
+	recent := Channel{
+		Agents: []Agent{
+			{LastActivity: time.Now().Add(-1 * time.Hour)},
+		},
+	}
+	if !recent.HasRecentActivity() {
+		t.Error("channel with recent agent should have recent activity")
+	}
+
+	old := Channel{
+		Agents: []Agent{
+			{LastActivity: time.Now().Add(-24 * time.Hour)},
+		},
+	}
+	if old.HasRecentActivity() {
+		t.Error("channel with old agent should not have recent activity")
+	}
+}

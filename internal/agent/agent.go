@@ -51,3 +51,19 @@ func (a Agent) IsActive() bool {
 func (a Agent) IsRecent() bool {
 	return time.Since(a.LastActivity) < recentThreshold
 }
+
+// Channel represents a group of agents from a branch/worktree.
+type Channel struct {
+	Name   string  // Display name like "june:main"
+	Agents []Agent // Mixed Claude and Codex agents
+}
+
+// HasRecentActivity returns true if any agent is active or recent.
+func (c Channel) HasRecentActivity() bool {
+	for _, a := range c.Agents {
+		if a.IsActive() || a.IsRecent() {
+			return true
+		}
+	}
+	return false
+}
