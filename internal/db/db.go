@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/sky-xo/june/internal/agent"
 	_ "modernc.org/sqlite"
 )
 
@@ -24,6 +25,20 @@ type Agent struct {
 	SpawnedAt   time.Time
 	RepoPath    string // Git repo path for channel grouping
 	Branch      string // Git branch for channel grouping
+}
+
+// ToUnified converts a db.Agent to the unified agent.Agent type.
+func (a Agent) ToUnified() agent.Agent {
+	return agent.Agent{
+		ID:             a.ULID,
+		Name:           a.Name,
+		Source:         agent.SourceCodex,
+		RepoPath:       a.RepoPath,
+		Branch:         a.Branch,
+		TranscriptPath: a.SessionFile,
+		LastActivity:   a.SpawnedAt, // TODO: use session file mod time
+		PID:            a.PID,
+	}
 }
 
 const schema = `

@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/sky-xo/june/internal/agent"
 )
 
 func TestOpenCreatesDatabase(t *testing.T) {
@@ -262,4 +265,41 @@ func openTestDB(t *testing.T) *DB {
 		t.Fatalf("Open failed: %v", err)
 	}
 	return db
+}
+
+func TestAgent_ToUnified(t *testing.T) {
+	dbAgent := Agent{
+		Name:        "my-agent",
+		ULID:        "ulid123",
+		SessionFile: "/path/to/session.jsonl",
+		Cursor:      100,
+		PID:         1234,
+		SpawnedAt:   time.Now(),
+		RepoPath:    "/Users/test/code/project",
+		Branch:      "feature",
+	}
+
+	unified := dbAgent.ToUnified()
+
+	if unified.ID != dbAgent.ULID {
+		t.Errorf("ID = %q, want %q", unified.ID, dbAgent.ULID)
+	}
+	if unified.Name != dbAgent.Name {
+		t.Errorf("Name = %q, want %q", unified.Name, dbAgent.Name)
+	}
+	if unified.Source != agent.SourceCodex {
+		t.Errorf("Source = %q, want %q", unified.Source, agent.SourceCodex)
+	}
+	if unified.TranscriptPath != dbAgent.SessionFile {
+		t.Errorf("TranscriptPath = %q, want %q", unified.TranscriptPath, dbAgent.SessionFile)
+	}
+	if unified.RepoPath != dbAgent.RepoPath {
+		t.Errorf("RepoPath = %q, want %q", unified.RepoPath, dbAgent.RepoPath)
+	}
+	if unified.Branch != dbAgent.Branch {
+		t.Errorf("Branch = %q, want %q", unified.Branch, dbAgent.Branch)
+	}
+	if unified.PID != dbAgent.PID {
+		t.Errorf("PID = %d, want %d", unified.PID, dbAgent.PID)
+	}
 }
