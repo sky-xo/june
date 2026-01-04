@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -998,5 +1000,95 @@ func TestMouseClickExpandsExpander(t *testing.T) {
 	// Channel should now be expanded
 	if !m.expandedChannels[0] {
 		t.Error("channel should be expanded after clicking expander")
+	}
+}
+
+func TestLoadTranscriptCmd_UsesCodexParserForCodexAgent(t *testing.T) {
+	// Create a temporary Codex-format session file
+	tmpDir := t.TempDir()
+	sessionFile := filepath.Join(tmpDir, "codex-session.jsonl")
+
+	// Write Codex-format JSONL content
+	content := `{"type":"event_msg","payload":{"type":"agent_reasoning","text":"Thinking about the task..."}}
+{"type":"response_item","payload":{"type":"message","text":"Here is my response"}}
+`
+	if err := os.WriteFile(sessionFile, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	// Create a Codex agent
+	codexAgent := agent.Agent{
+		ID:             "codex-123",
+		Source:         agent.SourceCodex,
+		TranscriptPath: sessionFile,
+	}
+
+	// Execute the command
+	cmd := loadTranscriptCmd(codexAgent)
+	msg := cmd()
+
+	// Should succeed and return a transcriptMsg, not an error
+	switch m := msg.(type) {
+	case transcriptMsg:
+		// For Codex agents, we should get entries (not be empty)
+		if len(m.entries) == 0 {
+			t.Error("Codex agent transcript should not be empty - parser may be wrong")
+		}
+		// Verify we got the expected content by checking if any entry has content
+		hasContent := false
+		for _, e := range m.entries {
+			if e.TextContent() != "" {
+				hasContent = true
+				break
+			}
+		}
+		if !hasContent {
+			t.Error("Codex agent transcript entries have no text content - parser may be wrong")
+		}
+	case errMsg:
+		t.Errorf("loadTranscriptCmd returned error: %v", m)
+	default:
+		t.Errorf("unexpected message type: %T", msg)
+	}
+}
+
+func TestLoadTranscriptCmd_UsesClaudeParserForClaudeAgent(t *testing.T) {
+	// Create a temporary Claude-format JSONL file
+	tmpDir := t.TempDir()
+	transcriptFile := filepath.Join(tmpDir, "claude-agent.jsonl")
+
+	// Write Claude-format JSONL content
+	content := `{"type":"user","message":{"role":"user","content":"Hello"},"timestamp":"2025-01-01T00:00:00Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hi there!"}]},"timestamp":"2025-01-01T00:00:01Z"}
+`
+	if err := os.WriteFile(transcriptFile, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	// Create a Claude agent
+	claudeAgent := agent.Agent{
+		ID:             "claude-123",
+		Source:         agent.SourceClaude,
+		TranscriptPath: transcriptFile,
+	}
+
+	// Execute the command
+	cmd := loadTranscriptCmd(claudeAgent)
+	msg := cmd()
+
+	// Should succeed and return a transcriptMsg
+	switch m := msg.(type) {
+	case transcriptMsg:
+		if len(m.entries) == 0 {
+			t.Error("Claude agent transcript should not be empty")
+		}
+		// First entry should be user type
+		if m.entries[0].Type != "user" {
+			t.Errorf("first entry type = %q, want 'user'", m.entries[0].Type)
+		}
+	case errMsg:
+		t.Errorf("loadTranscriptCmd returned error: %v", m)
+	default:
+		t.Errorf("unexpected message type: %T", msg)
 	}
 }

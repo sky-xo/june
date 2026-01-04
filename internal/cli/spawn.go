@@ -95,8 +95,6 @@ func runSpawnCodex(name, task string) error {
 				threadID = event.ThreadID
 			}
 		}
-		// Echo this line to stdout
-		fmt.Println(scanner.Text())
 	}
 
 	if threadID == "" {
@@ -130,9 +128,9 @@ func runSpawnCodex(name, task string) error {
 		return fmt.Errorf("failed to create agent record: %w", err)
 	}
 
-	// Stream remaining output
+	// Drain remaining output (without printing)
 	for scanner.Scan() {
-		fmt.Println(scanner.Text())
+		// Consume output silently
 	}
 
 	// Wait for process to finish

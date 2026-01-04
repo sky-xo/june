@@ -29,6 +29,14 @@ type Agent struct {
 
 // ToUnified converts a db.Agent to the unified agent.Agent type.
 func (a Agent) ToUnified() agent.Agent {
+	// Use file modification time for LastActivity, fall back to SpawnedAt
+	lastActivity := a.SpawnedAt
+	if a.SessionFile != "" {
+		if info, err := os.Stat(a.SessionFile); err == nil {
+			lastActivity = info.ModTime()
+		}
+	}
+
 	return agent.Agent{
 		ID:             a.ULID,
 		Name:           a.Name,
@@ -36,7 +44,7 @@ func (a Agent) ToUnified() agent.Agent {
 		RepoPath:       a.RepoPath,
 		Branch:         a.Branch,
 		TranscriptPath: a.SessionFile,
-		LastActivity:   a.SpawnedAt, // TODO: use session file mod time
+		LastActivity:   lastActivity,
 		PID:            a.PID,
 	}
 }

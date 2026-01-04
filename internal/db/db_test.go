@@ -337,3 +337,54 @@ func TestAgent_ToUnified(t *testing.T) {
 		t.Errorf("PID = %d, want %d", unified.PID, dbAgent.PID)
 	}
 }
+
+func TestAgent_ToUnified_UsesFileModTime(t *testing.T) {
+	// Create a temporary session file
+	tmpDir := t.TempDir()
+	sessionFile := filepath.Join(tmpDir, "session.jsonl")
+	if err := os.WriteFile(sessionFile, []byte(`{"test": "data"}`), 0644); err != nil {
+		t.Fatalf("failed to create test file: %v", err)
+	}
+
+	// Set SpawnedAt to a time in the past (1 hour ago)
+	spawnedAt := time.Now().Add(-1 * time.Hour)
+
+	dbAgent := Agent{
+		Name:        "my-agent",
+		ULID:        "ulid123",
+		SessionFile: sessionFile,
+		SpawnedAt:   spawnedAt,
+	}
+
+	unified := dbAgent.ToUnified()
+
+	// LastActivity should use file mod time, not SpawnedAt
+	// The file was just created, so its mod time should be close to now
+	// SpawnedAt is 1 hour ago, so if we're using file mod time,
+	// LastActivity should be much more recent than SpawnedAt
+	timeDiff := unified.LastActivity.Sub(spawnedAt)
+	if timeDiff < 50*time.Minute {
+		t.Errorf("LastActivity should use file mod time, not SpawnedAt. "+
+			"Expected LastActivity to be ~1 hour after SpawnedAt, but diff was %v", timeDiff)
+	}
+}
+
+func TestAgent_ToUnified_FallsBackToSpawnedAt(t *testing.T) {
+	// Use a non-existent file path
+	spawnedAt := time.Now().Add(-1 * time.Hour)
+
+	dbAgent := Agent{
+		Name:        "my-agent",
+		ULID:        "ulid123",
+		SessionFile: "/nonexistent/path/session.jsonl",
+		SpawnedAt:   spawnedAt,
+	}
+
+	unified := dbAgent.ToUnified()
+
+	// When file doesn't exist, should fall back to SpawnedAt
+	if !unified.LastActivity.Equal(spawnedAt) {
+		t.Errorf("LastActivity = %v, want %v (should fall back to SpawnedAt when file doesn't exist)",
+			unified.LastActivity, spawnedAt)
+	}
+}
