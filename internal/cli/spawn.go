@@ -10,6 +10,7 @@ import (
 
 	"github.com/sky-xo/june/internal/codex"
 	"github.com/sky-xo/june/internal/db"
+	"github.com/sky-xo/june/internal/scope"
 	"github.com/spf13/cobra"
 )
 
@@ -44,6 +45,11 @@ func newSpawnCmd() *cobra.Command {
 }
 
 func runSpawnCodex(name, task string) error {
+	// Capture git context before spawning
+	// Non-fatal if not in a git repo - we just won't have channel info
+	repoPath := scope.RepoRoot()
+	branch := scope.BranchName()
+
 	// Open database
 	home, err := juneHome()
 	if err != nil {
@@ -117,6 +123,8 @@ func runSpawnCodex(name, task string) error {
 		ULID:        threadID,
 		SessionFile: sessionFile,
 		PID:         codexCmd.Process.Pid,
+		RepoPath:    repoPath,
+		Branch:      branch,
 	}
 	if err := database.CreateAgent(agent); err != nil {
 		return fmt.Errorf("failed to create agent record: %w", err)
