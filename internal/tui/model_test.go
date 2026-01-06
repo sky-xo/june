@@ -1008,9 +1008,9 @@ func TestLoadTranscriptCmd_UsesCodexParserForCodexAgent(t *testing.T) {
 	tmpDir := t.TempDir()
 	sessionFile := filepath.Join(tmpDir, "codex-session.jsonl")
 
-	// Write Codex-format JSONL content
-	content := `{"type":"event_msg","payload":{"type":"agent_reasoning","text":"Thinking about the task..."}}
-{"type":"response_item","payload":{"type":"message","text":"Here is my response"}}
+	// Write Codex-format JSONL content (response_item format)
+	content := `{"type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"Thinking about the task..."}]}}
+{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Here is my response"}]}}
 `
 	if err := os.WriteFile(sessionFile, []byte(content), 0644); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)

@@ -116,6 +116,10 @@ func ScanChannels(claudeProjectsDir, basePath, repoName string, codexDB *db.DB) 
 	// 3. Build and sort channels
 	var channels []agent.Channel
 	for name, agents := range channelMap {
+		// Sort agents within channel by LastActivity (most recent first)
+		sort.Slice(agents, func(i, j int) bool {
+			return agents[i].LastActivity.After(agents[j].LastActivity)
+		})
 		channels = append(channels, agent.Channel{Name: name, Agents: agents})
 	}
 
