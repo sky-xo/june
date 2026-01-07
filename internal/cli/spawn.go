@@ -86,20 +86,7 @@ func runSpawnCodex(name, task, model, reasoningEffort, sandbox string, maxTokens
 	}
 
 	// Build codex command arguments dynamically
-	args := []string{"exec", "--json"}
-	if model != "" {
-		args = append(args, "--model", model)
-	}
-	if reasoningEffort != "" {
-		args = append(args, "-c", "model_reasoning_effort="+reasoningEffort)
-	}
-	if maxTokens > 0 {
-		args = append(args, "-c", fmt.Sprintf("model_max_output_tokens=%d", maxTokens))
-	}
-	if sandbox != "" {
-		args = append(args, "--sandbox", sandbox)
-	}
-	args = append(args, task)
+	args := buildCodexArgs(task, model, reasoningEffort, sandbox, maxTokens)
 
 	// Start codex exec --json
 	codexCmd := exec.Command("codex", args...)
@@ -178,6 +165,25 @@ func runSpawnCodex(name, task, model, reasoningEffort, sandbox string, maxTokens
 	}
 
 	return nil
+}
+
+// buildCodexArgs constructs the argument slice for the codex exec command.
+func buildCodexArgs(task, model, reasoningEffort, sandbox string, maxTokens int) []string {
+	args := []string{"exec", "--json"}
+	if model != "" {
+		args = append(args, "--model", model)
+	}
+	if reasoningEffort != "" {
+		args = append(args, "-c", "model_reasoning_effort="+reasoningEffort)
+	}
+	if maxTokens > 0 {
+		args = append(args, "-c", fmt.Sprintf("model_max_output_tokens=%d", maxTokens))
+	}
+	if sandbox != "" {
+		args = append(args, "--sandbox", sandbox)
+	}
+	args = append(args, task)
+	return args
 }
 
 func juneHome() (string, error) {
