@@ -792,6 +792,7 @@ Add to `spawn.go`:
 
 ```go
 // buildGeminiArgs constructs the argument slice for the gemini command.
+// sandbox is a boolean - for Gemini we just pass --sandbox if true.
 func buildGeminiArgs(task, model string, yolo, sandbox bool) []string {
 	args := []string{"-p", task, "--output-format", "stream-json"}
 
@@ -1064,19 +1065,17 @@ git commit -m "feat(cli): add runSpawnGemini function with tests"
 **Files:**
 - Modify: `internal/cli/spawn.go`
 
-**Step 1: Update newSpawnCmd to support gemini with separate sandbox flags**
+**Step 1: Update newSpawnCmd to support gemini with unified sandbox flag**
 
 Replace the command setup with:
 
 ```go
 func newSpawnCmd() *cobra.Command {
 	var (
-		name          string
-		model         string
-		yolo          bool
-		geminiSandbox bool
-		// Codex-specific
-		codexSandbox    string
+		name            string
+		model           string
+		yolo            bool
+		sandbox         string
 		reasoningEffort string
 		maxTokens       int
 	)
@@ -1092,8 +1091,15 @@ func newSpawnCmd() *cobra.Command {
 
 			switch agentType {
 			case "codex":
+				// For Codex, if --sandbox was passed without value, default to workspace-write
+				codexSandbox := sandbox
+				if cmd.Flags().Changed("sandbox") && sandbox == "" {
+					codexSandbox = "workspace-write"
+				}
 				return runSpawnCodex(name, task, model, reasoningEffort, codexSandbox, maxTokens)
 			case "gemini":
+				// For Gemini, sandbox is boolean - true if flag was passed at all
+				geminiSandbox := cmd.Flags().Changed("sandbox")
 				return runSpawnGemini(name, task, model, yolo, geminiSandbox)
 			default:
 				return fmt.Errorf("unsupported agent type: %s (supported: codex, gemini)", agentType)
@@ -1104,15 +1110,15 @@ func newSpawnCmd() *cobra.Command {
 	// Shared flags
 	cmd.Flags().StringVar(&name, "name", "", "Name prefix for the agent (auto-generated if omitted)")
 	cmd.Flags().StringVar(&model, "model", "", "Model to use")
+	cmd.Flags().StringVar(&sandbox, "sandbox", "", "Enable sandbox (Codex: optional value read-only|workspace-write|danger-full-access, defaults to workspace-write; Gemini: boolean)")
+	cmd.Flags().Lookup("sandbox").NoOptDefVal = "" // Allow --sandbox without value
 
 	// Codex-specific flags
-	cmd.Flags().StringVar(&codexSandbox, "sandbox", "", "Sandbox mode (codex: read-only|workspace-write|danger-full-access)")
 	cmd.Flags().StringVar(&reasoningEffort, "reasoning-effort", "", "Reasoning effort (codex only)")
 	cmd.Flags().IntVar(&maxTokens, "max-tokens", 0, "Max output tokens (codex only)")
 
 	// Gemini-specific flags
 	cmd.Flags().BoolVar(&yolo, "yolo", false, "Auto-approve all actions (gemini only, default is auto_edit)")
-	cmd.Flags().BoolVar(&geminiSandbox, "gemini-sandbox", false, "Run in Docker sandbox (gemini only)")
 
 	return cmd
 }
@@ -1531,7 +1537,7 @@ git commit -m "fix: address test failures"
 This plan was updated based on a fresh eyes review that identified:
 
 1. **TUI Integration Missing** - Added Task 10 to update `internal/tui/commands.go`
-2. **Sandbox flag mismatch** - Task 7 now uses `--gemini-sandbox` (bool) separate from `--sandbox` (string for Codex)
+2. **Unified sandbox flag** - Task 7 uses a single `--sandbox` flag for both Codex and Gemini. For Codex it accepts an optional string value (defaults to `workspace-write`); for Gemini it's treated as a boolean toggle.
 3. **Scanner buffer limit** - Task 6 now sets 1MB buffer limit to prevent truncation
 4. **Missing tests** - Task 6 now includes `TestBuildGeminiArgs`
 5. **Missing "gemini not installed" error** - Task 6 now includes `geminiInstalled()` check

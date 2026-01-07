@@ -31,10 +31,10 @@ june spawn gemini "task description" --name <name>
 |------|---------|-------------|
 | `--name` | auto-generated | Name prefix (ULID suffix added automatically) |
 | `--model` | gemini default | Model to use (e.g., `gemini-2.5-pro`) |
-| `--gemini-sandbox` | off | Run in Docker sandbox (boolean flag) |
+| `--sandbox` | off | Enable sandbox (Codex: accepts optional value like `read-only\|workspace-write\|danger-full-access`, defaults to `workspace-write`; Gemini: boolean, enables Docker sandbox) |
 | `--yolo` | off | Full auto-approve (default is `auto_edit`) |
 
-Note: `--sandbox` (string) is for Codex only. Gemini uses `--gemini-sandbox` (boolean).
+Note: `--sandbox` is a unified flag for both Codex and Gemini. For Codex it accepts an optional string value; for Gemini it's a boolean toggle.
 
 **Underlying command:**
 
