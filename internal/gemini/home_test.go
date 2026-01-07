@@ -10,9 +10,7 @@ import (
 func TestEnsureGeminiHome(t *testing.T) {
 	// Use temp dir as home
 	tmpHome := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpHome)
 
 	home, err := EnsureGeminiHome()
 	if err != nil {
@@ -38,9 +36,7 @@ func TestEnsureGeminiHome(t *testing.T) {
 
 func TestEnsureGeminiHomeCopiesAuth(t *testing.T) {
 	tmpHome := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpHome)
 
 	// Create mock ~/.gemini/ with auth files
 	userGemini := filepath.Join(tmpHome, ".gemini")
@@ -101,9 +97,7 @@ func TestEnsureGeminiHomeCopiesAuth(t *testing.T) {
 
 func TestEnsureGeminiHomeNoAuthFiles(t *testing.T) {
 	tmpHome := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpHome)
 
 	// No ~/.gemini/ directory - should still succeed
 	home, err := EnsureGeminiHome()
@@ -119,9 +113,7 @@ func TestEnsureGeminiHomeNoAuthFiles(t *testing.T) {
 
 func TestEnsureGeminiHome_DoesNotOverwriteExistingAuth(t *testing.T) {
 	tmpHome := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpHome)
 
 	// Create mock ~/.gemini/ with auth files
 	userGemini := filepath.Join(tmpHome, ".gemini")
@@ -160,9 +152,7 @@ func TestEnsureGeminiHome_DoesNotOverwriteExistingAuth(t *testing.T) {
 
 func TestWriteSettings(t *testing.T) {
 	tmpHome := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpHome)
 
 	// Ensure gemini home exists
 	geminiHome, err := EnsureGeminiHome()
@@ -212,9 +202,7 @@ func TestWriteSettings(t *testing.T) {
 
 func TestWriteSettingsEmpty(t *testing.T) {
 	tmpHome := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpHome)
 
 	geminiHome, _ := EnsureGeminiHome()
 

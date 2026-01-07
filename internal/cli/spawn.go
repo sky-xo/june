@@ -155,6 +155,7 @@ func runSpawnCodex(prefix, task string, model, reasoningEffort, sandbox string, 
 		PID:         codexCmd.Process.Pid,
 		RepoPath:    repoPath,
 		Branch:      branch,
+		Type:        "codex",
 	}
 	if err := database.CreateAgent(agent); err != nil {
 		return fmt.Errorf("failed to create agent record: %w", err)
@@ -328,8 +329,18 @@ func runSpawnGemini(prefix, task string, model string, yolo, sandbox bool) error
 	}
 
 	// Write the buffered first line
-	f.Write(firstLine)
-	f.Write([]byte("\n"))
+	if _, err := f.Write(firstLine); err != nil {
+		f.Close()
+		geminiCmd.Process.Kill()
+		geminiCmd.Wait()
+		return fmt.Errorf("failed to write to session file: %w", err)
+	}
+	if _, err := f.Write([]byte("\n")); err != nil {
+		f.Close()
+		geminiCmd.Process.Kill()
+		geminiCmd.Wait()
+		return fmt.Errorf("failed to write to session file: %w", err)
+	}
 
 	// Resolve agent name using session ID
 	name, err := resolveAgentNameWithULID(database, prefix, sessionID)
@@ -358,11 +369,31 @@ func runSpawnGemini(prefix, task string, model string, yolo, sandbox bool) error
 	}
 
 	// Stream remaining output to session file
+	var writeErr error
 	for scanner.Scan() {
-		f.Write(scanner.Bytes())
-		f.Write([]byte("\n"))
+		if _, err := f.Write(scanner.Bytes()); err != nil {
+			writeErr = err
+			break
+		}
+		if _, err := f.Write([]byte("\n")); err != nil {
+			writeErr = err
+			break
+		}
 	}
-	f.Close()
+
+	// Check for scanner errors
+	if err := scanner.Err(); err != nil && writeErr == nil {
+		writeErr = fmt.Errorf("error reading gemini output: %w", err)
+	}
+
+	// Check f.Close() error
+	if err := f.Close(); err != nil && writeErr == nil {
+		writeErr = fmt.Errorf("failed to close session file: %w", err)
+	}
+
+	if writeErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: error writing session file: %v\n", writeErr)
+	}
 
 	// Wait for process to finish
 	if err := geminiCmd.Wait(); err != nil {
