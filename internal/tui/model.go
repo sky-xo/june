@@ -928,15 +928,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case channelsMsg:
 		m.channels = msg
-		// After loading channels, ensure we're not on a header
-		if len(m.channels) > 0 {
-			items := m.sidebarItems()
-			if len(items) > 0 && m.selectedIdx < len(items) && items[m.selectedIdx].isHeader {
-				if nextIdx := m.nextSelectableIdx(m.selectedIdx, 1); nextIdx != -1 {
-					m.selectedIdx = nextIdx
-				}
-			}
-		}
+		m.preserveSelectionAfterRefresh()
 		if agent := m.SelectedAgent(); agent != nil {
 			m.lastViewedAgent = agent
 			cmds = append(cmds, loadTranscriptCmd(*agent))
