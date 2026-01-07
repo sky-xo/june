@@ -29,6 +29,16 @@ june
 
 The TUI will launch showing any subagents that have been spawned in that project.
 
+## Spawning Codex Agents
+
+```bash
+june spawn codex "your task here" --name mytask   # Spawn agent
+june peek mytask                                   # Show new output since last peek
+june logs mytask                                   # Show full transcript
+```
+
+Agent state is stored in `~/.june/june.db`.
+
 ## How It Works
 
 Claude Code stores subagent transcripts at:
