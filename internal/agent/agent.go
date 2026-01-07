@@ -4,7 +4,7 @@ package agent
 import "time"
 
 const (
-	activeThreshold = 10 * time.Second
+	activeThreshold = 20 * time.Second
 	recentThreshold = 2 * time.Hour
 )
 
