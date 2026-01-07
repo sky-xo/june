@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/sky-xo/june/internal/codex"
@@ -47,17 +48,16 @@ func runPeek(name string) error {
 	// Find session file if not set
 	sessionFile := agent.SessionFile
 	if sessionFile == "" {
-		codexHome, err := codex.CodexHome()
-		if err != nil {
-			return fmt.Errorf("failed to get codex home: %w", err)
-		}
-		found, err := codex.FindSessionFile(codexHome, agent.ULID)
+		found, err := codex.FindSessionFile(agent.ULID)
 		if err != nil {
 			return fmt.Errorf("session file not found for agent %q", name)
 		}
 		sessionFile = found
 		// Update in database
-		database.Exec("UPDATE agents SET session_file = ? WHERE name = ?", found, name)
+		if err := database.UpdateSessionFile(name, found); err != nil {
+			// Log warning but continue - this is not fatal
+			fmt.Fprintf(os.Stderr, "warning: failed to update session file in database: %v\n", err)
+		}
 	}
 
 	// Read from cursor

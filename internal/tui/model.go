@@ -4,10 +4,13 @@ package tui
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/sky-xo/june/internal/agent"
 	"github.com/sky-xo/june/internal/claude"
+	"github.com/sky-xo/june/internal/db"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -237,7 +240,7 @@ type sidebarItem struct {
 	isHeader    bool
 	channelName string        // Only set for headers
 	channelIdx  int           // Index into m.channels
-	agent       *claude.Agent // Only set for agents
+	agent       *agent.Agent  // Only set for agents
 	agentIdx    int           // Index within channel's agents slice
 	isExpander  bool          // True for "show N more" items
 	hiddenCount int           // Only set for expanders: how many agents are hidden
@@ -248,14 +251,15 @@ type Model struct {
 	claudeProjectsDir string                    // Base Claude projects directory (~/.claude/projects)
 	basePath          string                    // Git repo base path
 	repoName          string                    // Repository name (e.g., "june")
-	channels          []claude.Channel          // Channels with their agents
+	channels          []agent.Channel           // Channels with their agents
 	transcripts       map[string][]claude.Entry // Agent ID -> transcript entries
+	codexDB           *db.DB                    // Codex agent database connection (reused across ticks)
 
-	selectedIdx        int            // Currently selected item index (across all channels + headers)
-	lastViewedAgent    *claude.Agent  // Last agent shown in right panel (persists when header selected)
-	sidebarOffset      int            // Scroll offset for the sidebar
-	lastNavWasKeyboard bool           // Track if last sidebar interaction was keyboard (for auto-scroll behavior)
-	focusedPanel       int            // Which panel has focus (panelLeft or panelRight)
+	selectedIdx        int           // Currently selected item index (across all channels + headers)
+	lastViewedAgent    *agent.Agent  // Last agent shown in right panel (persists when header selected)
+	sidebarOffset      int           // Scroll offset for the sidebar
+	lastNavWasKeyboard bool          // Track if last sidebar interaction was keyboard (for auto-scroll behavior)
+	focusedPanel       int           // Which panel has focus (panelLeft or panelRight)
 	selection          SelectionState // Text selection state
 	expandedChannels   map[int]bool   // Channel index -> whether it's expanded to show all agents
 	width              int
@@ -268,14 +272,30 @@ type Model struct {
 
 // NewModel creates a new TUI model.
 func NewModel(claudeProjectsDir, basePath, repoName string) Model {
+	// Open Codex database (non-fatal if fails)
+	var codexDB *db.DB
+	if home, err := os.UserHomeDir(); err == nil {
+		dbPath := filepath.Join(home, ".june", "june.db")
+		codexDB, _ = db.Open(dbPath)
+	}
+
 	return Model{
 		claudeProjectsDir: claudeProjectsDir,
 		basePath:          basePath,
 		repoName:          repoName,
-		channels:          []claude.Channel{},
+		channels:          []agent.Channel{},
 		transcripts:       make(map[string][]claude.Entry),
+		codexDB:           codexDB,
 		expandedChannels:  make(map[int]bool),
 		viewport:          viewport.New(0, 0),
+	}
+}
+
+// Close cleans up resources held by the Model.
+func (m *Model) Close() {
+	if m.codexDB != nil {
+		m.codexDB.Close()
+		m.codexDB = nil
 	}
 }
 
@@ -369,7 +389,7 @@ func (m Model) nextSelectableIdx(fromIdx int, direction int) int {
 }
 
 // SelectedAgent returns the currently selected agent, or nil if a header or expander is selected.
-func (m Model) SelectedAgent() *claude.Agent {
+func (m Model) SelectedAgent() *agent.Agent {
 	items := m.sidebarItems()
 	if m.selectedIdx < 0 || m.selectedIdx >= len(items) {
 		return nil
@@ -478,7 +498,7 @@ func (m *Model) ensureSelectedVisible() {
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		tickCmd(),
-		scanChannelsCmd(m.claudeProjectsDir, m.basePath, m.repoName),
+		scanChannelsCmd(m.claudeProjectsDir, m.basePath, m.repoName, m.codexDB),
 	)
 }
 
@@ -812,7 +832,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateViewport()
 
 	case tickMsg:
-		cmds = append(cmds, tickCmd(), scanChannelsCmd(m.claudeProjectsDir, m.basePath, m.repoName))
+		cmds = append(cmds, tickCmd(), scanChannelsCmd(m.claudeProjectsDir, m.basePath, m.repoName, m.codexDB))
 
 	case channelsMsg:
 		m.channels = msg
@@ -948,11 +968,11 @@ func (m Model) View() string {
 
 	// Right panel: transcript (uses lastViewedAgent to persist when header is selected)
 	var rightTitle string
-	if agent := m.lastViewedAgent; agent != nil {
-		if agent.Description != "" {
-			rightTitle = fmt.Sprintf("%s (%s) | %s", agent.Description, agent.ID, formatTimestamp(agent.LastMod))
+	if a := m.lastViewedAgent; a != nil {
+		if a.Name != "" {
+			rightTitle = fmt.Sprintf("%s (%s) | %s", a.Name, a.ID, formatTimestamp(a.LastActivity))
 		} else {
-			rightTitle = fmt.Sprintf("%s | %s", agent.ID, formatTimestamp(agent.LastMod))
+			rightTitle = fmt.Sprintf("%s | %s", a.ID, formatTimestamp(a.LastActivity))
 		}
 	}
 
@@ -1071,12 +1091,9 @@ func (m *Model) renderSidebarContent(width, height int) string {
 			// Layout: "● Name" for active (dot + space + name)
 			//         "  Name" for inactive (2 spaces + name)
 			// Text position stays the same whether active or not
-			agent := item.agent
+			a := item.agent
 
-			name := agent.Description
-			if name == "" {
-				name = agent.ID
-			}
+			name := a.DisplayName()
 			maxNameLen := width - 2 // 2 chars for prefix (dot+space or 2 spaces)
 			if len(name) > maxNameLen {
 				name = name[:maxNameLen]
@@ -1085,7 +1102,7 @@ func (m *Model) renderSidebarContent(width, height int) string {
 			if i == m.selectedIdx {
 				selectedBg := lipgloss.AdaptiveColor{Light: "254", Dark: "8"}
 				var prefix string
-				if agent.IsActive() {
+				if a.IsActive() {
 					prefix = activeStyle.Background(selectedBg).Render("\u25cf") + selectedBgStyle.Render(" ")
 				} else {
 					prefix = selectedBgStyle.Render("  ")
@@ -1096,7 +1113,7 @@ func (m *Model) renderSidebarContent(width, height int) string {
 				}
 				lines = append(lines, prefix+selectedBgStyle.Render(rest))
 			} else {
-				if agent.IsActive() {
+				if a.IsActive() {
 					lines = append(lines, activeStyle.Render("\u25cf")+" "+name)
 				} else {
 					lines = append(lines, "  "+name)

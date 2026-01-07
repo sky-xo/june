@@ -1,9 +1,13 @@
 package db
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/sky-xo/june/internal/agent"
 )
 
 func TestOpenCreatesDatabase(t *testing.T) {
@@ -175,6 +179,83 @@ func TestUpdateSessionFileNotFound(t *testing.T) {
 	}
 }
 
+func TestCreateAgent_WithGitContext(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	agent := Agent{
+		Name:        "test-agent",
+		ULID:        "01234567890",
+		SessionFile: "/tmp/session.jsonl",
+		PID:         1234,
+		RepoPath:    "/Users/test/code/myproject",
+		Branch:      "main",
+	}
+
+	if err := db.CreateAgent(agent); err != nil {
+		t.Fatalf("CreateAgent failed: %v", err)
+	}
+
+	got, err := db.GetAgent("test-agent")
+	if err != nil {
+		t.Fatalf("GetAgent failed: %v", err)
+	}
+
+	if got.RepoPath != agent.RepoPath {
+		t.Errorf("RepoPath = %q, want %q", got.RepoPath, agent.RepoPath)
+	}
+	if got.Branch != agent.Branch {
+		t.Errorf("Branch = %q, want %q", got.Branch, agent.Branch)
+	}
+}
+
+func TestMigration_AddsNewColumns(t *testing.T) {
+	// Create a DB with the OLD schema (no repo_path, branch)
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	// Manually create old schema
+	rawDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = rawDB.Exec(`
+		CREATE TABLE agents (
+			name TEXT PRIMARY KEY,
+			ulid TEXT NOT NULL,
+			session_file TEXT NOT NULL,
+			cursor INTEGER DEFAULT 0,
+			pid INTEGER,
+			spawned_at TEXT NOT NULL
+		);
+		INSERT INTO agents (name, ulid, session_file, pid, spawned_at)
+		VALUES ('old-agent', 'ulid123', '/tmp/session.jsonl', 0, '2025-01-01T00:00:00Z');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawDB.Close()
+
+	// Now open with our Open() which should migrate
+	db, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer db.Close()
+
+	// Old agent should still be readable with empty repo_path/branch
+	agent, err := db.GetAgent("old-agent")
+	if err != nil {
+		t.Fatalf("GetAgent failed: %v", err)
+	}
+	if agent.RepoPath != "" {
+		t.Errorf("expected empty RepoPath for migrated agent, got %q", agent.RepoPath)
+	}
+	if agent.Branch != "" {
+		t.Errorf("expected empty Branch for migrated agent, got %q", agent.Branch)
+	}
+}
+
 func openTestDB(t *testing.T) *DB {
 	t.Helper()
 	tmpDir := t.TempDir()
@@ -184,4 +265,174 @@ func openTestDB(t *testing.T) *DB {
 		t.Fatalf("Open failed: %v", err)
 	}
 	return db
+}
+
+func TestListAgentsByRepo(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	// Create agents in different repos
+	if err := db.CreateAgent(Agent{Name: "a1", ULID: "1", SessionFile: "/tmp/1.jsonl", RepoPath: "/code/project", Branch: "main"}); err != nil {
+		t.Fatalf("CreateAgent failed: %v", err)
+	}
+	if err := db.CreateAgent(Agent{Name: "a2", ULID: "2", SessionFile: "/tmp/2.jsonl", RepoPath: "/code/project", Branch: "feature"}); err != nil {
+		t.Fatalf("CreateAgent failed: %v", err)
+	}
+	if err := db.CreateAgent(Agent{Name: "a3", ULID: "3", SessionFile: "/tmp/3.jsonl", RepoPath: "/code/other", Branch: "main"}); err != nil {
+		t.Fatalf("CreateAgent failed: %v", err)
+	}
+
+	agents, err := db.ListAgentsByRepo("/code/project")
+	if err != nil {
+		t.Fatalf("ListAgentsByRepo failed: %v", err)
+	}
+
+	if len(agents) != 2 {
+		t.Errorf("expected 2 agents, got %d", len(agents))
+	}
+
+	// Verify the returned agents are the right ones
+	names := make(map[string]bool)
+	for _, a := range agents {
+		names[a.Name] = true
+	}
+	if !names["a1"] || !names["a2"] {
+		t.Errorf("expected agents a1 and a2, got %v", agents)
+	}
+}
+
+func TestAgent_ToUnified(t *testing.T) {
+	dbAgent := Agent{
+		Name:        "my-agent",
+		ULID:        "ulid123",
+		SessionFile: "/path/to/session.jsonl",
+		Cursor:      100,
+		PID:         1234,
+		SpawnedAt:   time.Now(),
+		RepoPath:    "/Users/test/code/project",
+		Branch:      "feature",
+	}
+
+	unified := dbAgent.ToUnified()
+
+	if unified.ID != dbAgent.ULID {
+		t.Errorf("ID = %q, want %q", unified.ID, dbAgent.ULID)
+	}
+	if unified.Name != dbAgent.Name {
+		t.Errorf("Name = %q, want %q", unified.Name, dbAgent.Name)
+	}
+	if unified.Source != agent.SourceCodex {
+		t.Errorf("Source = %q, want %q", unified.Source, agent.SourceCodex)
+	}
+	if unified.TranscriptPath != dbAgent.SessionFile {
+		t.Errorf("TranscriptPath = %q, want %q", unified.TranscriptPath, dbAgent.SessionFile)
+	}
+	if unified.RepoPath != dbAgent.RepoPath {
+		t.Errorf("RepoPath = %q, want %q", unified.RepoPath, dbAgent.RepoPath)
+	}
+	if unified.Branch != dbAgent.Branch {
+		t.Errorf("Branch = %q, want %q", unified.Branch, dbAgent.Branch)
+	}
+	if unified.PID != dbAgent.PID {
+		t.Errorf("PID = %d, want %d", unified.PID, dbAgent.PID)
+	}
+}
+
+func TestAgent_ToUnified_UsesFileModTime(t *testing.T) {
+	// Create a temporary session file
+	tmpDir := t.TempDir()
+	sessionFile := filepath.Join(tmpDir, "session.jsonl")
+	if err := os.WriteFile(sessionFile, []byte(`{"test": "data"}`), 0644); err != nil {
+		t.Fatalf("failed to create test file: %v", err)
+	}
+
+	// Set SpawnedAt to a time in the past (1 hour ago)
+	spawnedAt := time.Now().Add(-1 * time.Hour)
+
+	dbAgent := Agent{
+		Name:        "my-agent",
+		ULID:        "ulid123",
+		SessionFile: sessionFile,
+		SpawnedAt:   spawnedAt,
+	}
+
+	unified := dbAgent.ToUnified()
+
+	// LastActivity should use file mod time, not SpawnedAt
+	// The file was just created, so its mod time should be close to now
+	// SpawnedAt is 1 hour ago, so if we're using file mod time,
+	// LastActivity should be much more recent than SpawnedAt
+	timeDiff := unified.LastActivity.Sub(spawnedAt)
+	if timeDiff < 50*time.Minute {
+		t.Errorf("LastActivity should use file mod time, not SpawnedAt. "+
+			"Expected LastActivity to be ~1 hour after SpawnedAt, but diff was %v", timeDiff)
+	}
+}
+
+func TestAgent_ToUnified_FallsBackToSpawnedAt(t *testing.T) {
+	// Use a non-existent file path
+	spawnedAt := time.Now().Add(-1 * time.Hour)
+
+	dbAgent := Agent{
+		Name:        "my-agent",
+		ULID:        "ulid123",
+		SessionFile: "/nonexistent/path/session.jsonl",
+		SpawnedAt:   spawnedAt,
+	}
+
+	unified := dbAgent.ToUnified()
+
+	// When file doesn't exist, should fall back to SpawnedAt
+	if !unified.LastActivity.Equal(spawnedAt) {
+		t.Errorf("LastActivity = %v, want %v (should fall back to SpawnedAt when file doesn't exist)",
+			unified.LastActivity, spawnedAt)
+	}
+}
+
+func TestMigration_PartialMigration_AddsMissingBranchColumn(t *testing.T) {
+	// Create a DB with repo_path but NOT branch (partial migration scenario)
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	// Manually create schema with repo_path but not branch
+	rawDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = rawDB.Exec(`
+		CREATE TABLE agents (
+			name TEXT PRIMARY KEY,
+			ulid TEXT NOT NULL,
+			session_file TEXT NOT NULL,
+			cursor INTEGER DEFAULT 0,
+			pid INTEGER,
+			spawned_at TEXT NOT NULL,
+			repo_path TEXT DEFAULT ''
+		);
+		INSERT INTO agents (name, ulid, session_file, pid, spawned_at, repo_path)
+		VALUES ('partial-agent', 'ulid456', '/tmp/session.jsonl', 0, '2025-01-01T00:00:00Z', '/code/project');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawDB.Close()
+
+	// Now open with our Open() which should migrate and add the missing branch column
+	db, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer db.Close()
+
+	// Agent should be readable with empty branch
+	agent, err := db.GetAgent("partial-agent")
+	if err != nil {
+		t.Fatalf("GetAgent failed: %v", err)
+	}
+	if agent.RepoPath != "/code/project" {
+		t.Errorf("expected RepoPath '/code/project', got %q", agent.RepoPath)
+	}
+	if agent.Branch != "" {
+		t.Errorf("expected empty Branch for partially migrated agent, got %q", agent.Branch)
+	}
 }

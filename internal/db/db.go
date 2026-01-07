@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/sky-xo/june/internal/agent"
 	_ "modernc.org/sqlite"
 )
 
@@ -22,6 +23,30 @@ type Agent struct {
 	Cursor      int
 	PID         int
 	SpawnedAt   time.Time
+	RepoPath    string // Git repo path for channel grouping
+	Branch      string // Git branch for channel grouping
+}
+
+// ToUnified converts a db.Agent to the unified agent.Agent type.
+func (a Agent) ToUnified() agent.Agent {
+	// Use file modification time for LastActivity, fall back to SpawnedAt
+	lastActivity := a.SpawnedAt
+	if a.SessionFile != "" {
+		if info, err := os.Stat(a.SessionFile); err == nil {
+			lastActivity = info.ModTime()
+		}
+	}
+
+	return agent.Agent{
+		ID:             a.ULID,
+		Name:           a.Name,
+		Source:         agent.SourceCodex,
+		RepoPath:       a.RepoPath,
+		Branch:         a.Branch,
+		TranscriptPath: a.SessionFile,
+		LastActivity:   lastActivity,
+		PID:            a.PID,
+	}
 }
 
 const schema = `
@@ -31,7 +56,9 @@ CREATE TABLE IF NOT EXISTS agents (
 	session_file TEXT NOT NULL,
 	cursor INTEGER DEFAULT 0,
 	pid INTEGER,
-	spawned_at TEXT NOT NULL
+	spawned_at TEXT NOT NULL,
+	repo_path TEXT DEFAULT '',
+	branch TEXT DEFAULT ''
 );
 `
 
@@ -52,8 +79,14 @@ func Open(path string) (*DB, error) {
 		return nil, err
 	}
 
-	// Create schema
+	// Create schema (for new DBs)
 	if _, err := db.Exec(schema); err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	// Run migrations (for existing DBs)
+	if err := migrate(db); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -61,12 +94,42 @@ func Open(path string) (*DB, error) {
 	return &DB{db}, nil
 }
 
+// migrate runs schema migrations for existing databases
+func migrate(db *sql.DB) error {
+	// Check if repo_path column exists and add if missing
+	var repoPathCount int
+	err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('agents') WHERE name='repo_path'`).Scan(&repoPathCount)
+	if err != nil {
+		return err
+	}
+	if repoPathCount == 0 {
+		if _, err := db.Exec(`ALTER TABLE agents ADD COLUMN repo_path TEXT DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
+	// Check if branch column exists independently and add if missing
+	var branchCount int
+	err = db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('agents') WHERE name='branch'`).Scan(&branchCount)
+	if err != nil {
+		return err
+	}
+	if branchCount == 0 {
+		if _, err := db.Exec(`ALTER TABLE agents ADD COLUMN branch TEXT DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // CreateAgent inserts a new agent record
 func (db *DB) CreateAgent(a Agent) error {
 	_, err := db.Exec(
-		`INSERT INTO agents (name, ulid, session_file, cursor, pid, spawned_at)
-		 VALUES (?, ?, ?, 0, ?, ?)`,
+		`INSERT INTO agents (name, ulid, session_file, cursor, pid, spawned_at, repo_path, branch)
+		 VALUES (?, ?, ?, 0, ?, ?, ?, ?)`,
 		a.Name, a.ULID, a.SessionFile, a.PID, time.Now().UTC().Format(time.RFC3339),
+		a.RepoPath, a.Branch,
 	)
 	return err
 }
@@ -76,9 +139,9 @@ func (db *DB) GetAgent(name string) (*Agent, error) {
 	var a Agent
 	var spawnedAt string
 	err := db.QueryRow(
-		`SELECT name, ulid, session_file, cursor, pid, spawned_at
+		`SELECT name, ulid, session_file, cursor, pid, spawned_at, repo_path, branch
 		 FROM agents WHERE name = ?`, name,
-	).Scan(&a.Name, &a.ULID, &a.SessionFile, &a.Cursor, &a.PID, &spawnedAt)
+	).Scan(&a.Name, &a.ULID, &a.SessionFile, &a.Cursor, &a.PID, &spawnedAt, &a.RepoPath, &a.Branch)
 	if err == sql.ErrNoRows {
 		return nil, ErrAgentNotFound
 	}
@@ -122,7 +185,7 @@ func (db *DB) UpdateSessionFile(name string, sessionFile string) error {
 // ListAgents returns all agents
 func (db *DB) ListAgents() ([]Agent, error) {
 	rows, err := db.Query(
-		`SELECT name, ulid, session_file, cursor, pid, spawned_at
+		`SELECT name, ulid, session_file, cursor, pid, spawned_at, repo_path, branch
 		 FROM agents ORDER BY spawned_at DESC`,
 	)
 	if err != nil {
@@ -134,7 +197,39 @@ func (db *DB) ListAgents() ([]Agent, error) {
 	for rows.Next() {
 		var a Agent
 		var spawnedAt string
-		if err := rows.Scan(&a.Name, &a.ULID, &a.SessionFile, &a.Cursor, &a.PID, &spawnedAt); err != nil {
+		if err := rows.Scan(&a.Name, &a.ULID, &a.SessionFile, &a.Cursor, &a.PID, &spawnedAt, &a.RepoPath, &a.Branch); err != nil {
+			return nil, err
+		}
+		var parseErr error
+		a.SpawnedAt, parseErr = time.Parse(time.RFC3339, spawnedAt)
+		if parseErr != nil {
+			log.Printf("warning: failed to parse spawned_at for agent %s: %v", a.Name, parseErr)
+		}
+		agents = append(agents, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return agents, nil
+}
+
+// ListAgentsByRepo returns agents matching the given repo path.
+func (db *DB) ListAgentsByRepo(repoPath string) ([]Agent, error) {
+	rows, err := db.Query(
+		`SELECT name, ulid, session_file, cursor, pid, spawned_at, repo_path, branch
+		 FROM agents WHERE repo_path = ? ORDER BY spawned_at DESC`,
+		repoPath,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var agents []Agent
+	for rows.Next() {
+		var a Agent
+		var spawnedAt string
+		if err := rows.Scan(&a.Name, &a.ULID, &a.SessionFile, &a.Cursor, &a.PID, &spawnedAt, &a.RepoPath, &a.Branch); err != nil {
 			return nil, err
 		}
 		var parseErr error

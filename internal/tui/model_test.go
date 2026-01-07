@@ -1,11 +1,15 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/sky-xo/june/internal/agent"
 	"github.com/sky-xo/june/internal/claude"
+	"github.com/sky-xo/june/internal/codex"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -146,25 +150,25 @@ func searchString(s, substr string) bool {
 }
 
 // createTestAgents creates N test agents for testing.
-// All agents are created with recent LastMod times (within 2 hours) so they all pass filtering.
-func createTestAgents(n int) []claude.Agent {
-	agents := make([]claude.Agent, n)
+// All agents are created with recent LastActivity times (within 2 hours) so they all pass filtering.
+func createTestAgents(n int) []agent.Agent {
+	agents := make([]agent.Agent, n)
 	for i := 0; i < n; i++ {
-		agents[i] = claude.Agent{
-			ID:       "agent" + string(rune('A'+i)),
-			FilePath: "/test/agent-" + string(rune('A'+i)) + ".jsonl",
-			LastMod:  time.Now().Add(-time.Duration(i) * time.Minute), // Use minutes to keep all recent
+		agents[i] = agent.Agent{
+			ID:             "agent" + string(rune('A'+i)),
+			TranscriptPath: "/test/agent-" + string(rune('A'+i)) + ".jsonl",
+			LastActivity:   time.Now().Add(-time.Duration(i) * time.Minute), // Use minutes to keep all recent
 		}
 	}
 	return agents
 }
 
 // createModelWithAgents creates a model with the given agents and dimensions
-func createModelWithAgents(agents []claude.Agent, width, height int) Model {
+func createModelWithAgents(agents []agent.Agent, width, height int) Model {
 	m := NewModel("/test/claude/projects", "/test/repo", "repo")
 	// Create a single channel with the test agents
-	m.channels = []claude.Channel{
-		{Name: "repo:main", Dir: "/test/claude/projects/repo", Agents: agents},
+	m.channels = []agent.Channel{
+		{Name: "repo:main", Agents: agents},
 	}
 	// Set lastViewedAgent to first agent if available (for right panel display)
 	if len(agents) > 0 {
@@ -342,7 +346,7 @@ func TestSidebarVisibleLines_WithTopIndicator(t *testing.T) {
 func TestRenderSidebarContent_EmptyAgents(t *testing.T) {
 	// With no channels at all, should show "No agents found"
 	m := NewModel("/test/claude/projects", "/test/repo", "repo")
-	m.channels = []claude.Channel{} // No channels
+	m.channels = []agent.Channel{} // No channels
 	m.width = 25
 	m.height = 10
 
@@ -780,28 +784,28 @@ func TestUpdate_KKeyInMiddleOfSidebar_DoesNotScrollContent(t *testing.T) {
 
 func TestRenderSidebarShowsDescription(t *testing.T) {
 	now := time.Now()
-	agents := []claude.Agent{
-		{ID: "abc123", Description: "Fix login bug", LastMod: now.Add(-1 * time.Minute)},
-		{ID: "def456", Description: "", LastMod: now.Add(-2 * time.Minute)},
+	agents := []agent.Agent{
+		{ID: "abc123", Name: "Fix login bug", LastActivity: now.Add(-1 * time.Minute)},
+		{ID: "def456", Name: "", LastActivity: now.Add(-2 * time.Minute)},
 	}
 	m := createModelWithAgents(agents, 80, 24)
 
 	content := m.renderSidebarContent(20, 10)
 
-	// Should show description when available
+	// Should show name when available
 	if !strings.Contains(content, "Fix login bug") {
-		t.Errorf("expected sidebar to contain description, got: %s", content)
+		t.Errorf("expected sidebar to contain name, got: %s", content)
 	}
 
-	// Should fall back to ID when no description
+	// Should fall back to ID when no name
 	if !strings.Contains(content, "def456") {
-		t.Errorf("expected sidebar to contain agent ID when no description, got: %s", content)
+		t.Errorf("expected sidebar to contain agent ID when no name, got: %s", content)
 	}
 }
 
 func TestViewShowsDescriptionAndIDInRightPanel(t *testing.T) {
-	agents := []claude.Agent{
-		{ID: "abc12345", Description: "Fix login bug", FilePath: "/tmp/test.jsonl", LastMod: time.Now()},
+	agents := []agent.Agent{
+		{ID: "abc12345", Name: "Fix login bug", TranscriptPath: "/tmp/test.jsonl", LastActivity: time.Now()},
 	}
 	m := createModelWithAgents(agents, 80, 24)
 	// With channel headers, index 0 is the header, index 1 is the first agent
@@ -809,9 +813,9 @@ func TestViewShowsDescriptionAndIDInRightPanel(t *testing.T) {
 
 	view := m.View()
 
-	// Should show "Description (ID) | timestamp" format
+	// Should show "Name (ID) | timestamp" format
 	if !strings.Contains(view, "Fix login bug") {
-		t.Errorf("expected description in right panel, got: %s", view)
+		t.Errorf("expected name in right panel, got: %s", view)
 	}
 	if !strings.Contains(view, "(abc12345)") {
 		t.Errorf("expected ID in parentheses in right panel, got: %s", view)
@@ -819,8 +823,8 @@ func TestViewShowsDescriptionAndIDInRightPanel(t *testing.T) {
 }
 
 func TestViewShowsOnlyIDWhenNoDescription(t *testing.T) {
-	agents := []claude.Agent{
-		{ID: "abc12345", Description: "", FilePath: "/tmp/test.jsonl", LastMod: time.Now()},
+	agents := []agent.Agent{
+		{ID: "abc12345", Name: "", TranscriptPath: "/tmp/test.jsonl", LastActivity: time.Now()},
 	}
 	m := createModelWithAgents(agents, 80, 24)
 	// With channel headers, index 0 is the header, index 1 is the first agent
@@ -828,23 +832,23 @@ func TestViewShowsOnlyIDWhenNoDescription(t *testing.T) {
 
 	view := m.View()
 
-	// Should fall back to just ID when no description
+	// Should fall back to just ID when no name
 	if !strings.Contains(view, "abc12345") {
 		t.Errorf("expected agent ID in right panel, got: %s", view)
 	}
 	// Should NOT have empty parentheses
 	if strings.Contains(view, "()") {
-		t.Errorf("should not show empty parentheses when no description, got: %s", view)
+		t.Errorf("should not show empty parentheses when no name, got: %s", view)
 	}
 }
 
 func TestSidebarItems_FiltersOldAgents(t *testing.T) {
 	now := time.Now()
-	agents := []claude.Agent{
-		{ID: "active", LastMod: now.Add(-5 * time.Second)},   // active
-		{ID: "recent", LastMod: now.Add(-1 * time.Hour)},     // recent
-		{ID: "old1", LastMod: now.Add(-24 * time.Hour)},      // old
-		{ID: "old2", LastMod: now.Add(-48 * time.Hour)},      // old
+	agents := []agent.Agent{
+		{ID: "active", LastActivity: now.Add(-5 * time.Second)},   // active
+		{ID: "recent", LastActivity: now.Add(-1 * time.Hour)},     // recent
+		{ID: "old1", LastActivity: now.Add(-24 * time.Hour)},      // old
+		{ID: "old2", LastActivity: now.Add(-48 * time.Hour)},      // old
 	}
 
 	m := createModelWithAgents(agents, 80, 40)
@@ -873,10 +877,10 @@ func TestSidebarItems_FiltersOldAgents(t *testing.T) {
 
 func TestSidebarItems_ExpandedShowsAll(t *testing.T) {
 	now := time.Now()
-	agents := []claude.Agent{
-		{ID: "active", LastMod: now.Add(-5 * time.Second)},
-		{ID: "old1", LastMod: now.Add(-24 * time.Hour)},
-		{ID: "old2", LastMod: now.Add(-48 * time.Hour)},
+	agents := []agent.Agent{
+		{ID: "active", LastActivity: now.Add(-5 * time.Second)},
+		{ID: "old1", LastActivity: now.Add(-24 * time.Hour)},
+		{ID: "old2", LastActivity: now.Add(-48 * time.Hour)},
 	}
 
 	m := createModelWithAgents(agents, 80, 40)
@@ -899,17 +903,17 @@ func TestSidebarItems_ExpandedShowsAll(t *testing.T) {
 func TestNavigationSkipsHeaders(t *testing.T) {
 	now := time.Now()
 	// Create two channels with agents
-	channels := []claude.Channel{
+	channels := []agent.Channel{
 		{
 			Name: "channel1",
-			Agents: []claude.Agent{
-				{ID: "agent1", LastMod: now.Add(-1 * time.Minute)},
+			Agents: []agent.Agent{
+				{ID: "agent1", LastActivity: now.Add(-1 * time.Minute)},
 			},
 		},
 		{
 			Name: "channel2",
-			Agents: []claude.Agent{
-				{ID: "agent2", LastMod: now.Add(-2 * time.Minute)},
+			Agents: []agent.Agent{
+				{ID: "agent2", LastActivity: now.Add(-2 * time.Minute)},
 			},
 		},
 	}
@@ -942,10 +946,10 @@ func TestNavigationSkipsHeaders(t *testing.T) {
 
 func TestMouseClickExpandsExpander(t *testing.T) {
 	now := time.Now()
-	agents := []claude.Agent{
-		{ID: "active", LastMod: now.Add(-5 * time.Second)},
-		{ID: "old1", LastMod: now.Add(-24 * time.Hour)},
-		{ID: "old2", LastMod: now.Add(-48 * time.Hour)},
+	agents := []agent.Agent{
+		{ID: "active", LastActivity: now.Add(-5 * time.Second)},
+		{ID: "old1", LastActivity: now.Add(-24 * time.Hour)},
+		{ID: "old2", LastActivity: now.Add(-48 * time.Hour)},
 	}
 
 	m := createModelWithAgents(agents, 80, 40)
@@ -997,5 +1001,125 @@ func TestMouseClickExpandsExpander(t *testing.T) {
 	// Channel should now be expanded
 	if !m.expandedChannels[0] {
 		t.Error("channel should be expanded after clicking expander")
+	}
+}
+
+func TestLoadTranscriptCmd_UsesCodexParserForCodexAgent(t *testing.T) {
+	// Create a temporary Codex-format session file
+	tmpDir := t.TempDir()
+	sessionFile := filepath.Join(tmpDir, "codex-session.jsonl")
+
+	// Write Codex-format JSONL content (response_item format)
+	content := `{"type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"Thinking about the task..."}]}}
+{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Here is my response"}]}}
+`
+	if err := os.WriteFile(sessionFile, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	// Create a Codex agent
+	codexAgent := agent.Agent{
+		ID:             "codex-123",
+		Source:         agent.SourceCodex,
+		TranscriptPath: sessionFile,
+	}
+
+	// Execute the command
+	cmd := loadTranscriptCmd(codexAgent)
+	msg := cmd()
+
+	// Should succeed and return a transcriptMsg, not an error
+	switch m := msg.(type) {
+	case transcriptMsg:
+		// For Codex agents, we should get entries (not be empty)
+		if len(m.entries) == 0 {
+			t.Error("Codex agent transcript should not be empty - parser may be wrong")
+		}
+		// Verify we got the expected content by checking if any entry has content
+		hasContent := false
+		for _, e := range m.entries {
+			if e.TextContent() != "" {
+				hasContent = true
+				break
+			}
+		}
+		if !hasContent {
+			t.Error("Codex agent transcript entries have no text content - parser may be wrong")
+		}
+	case errMsg:
+		t.Errorf("loadTranscriptCmd returned error: %v", m)
+	default:
+		t.Errorf("unexpected message type: %T", msg)
+	}
+}
+
+func TestLoadTranscriptCmd_UsesClaudeParserForClaudeAgent(t *testing.T) {
+	// Create a temporary Claude-format JSONL file
+	tmpDir := t.TempDir()
+	transcriptFile := filepath.Join(tmpDir, "claude-agent.jsonl")
+
+	// Write Claude-format JSONL content
+	content := `{"type":"user","message":{"role":"user","content":"Hello"},"timestamp":"2025-01-01T00:00:00Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hi there!"}]},"timestamp":"2025-01-01T00:00:01Z"}
+`
+	if err := os.WriteFile(transcriptFile, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	// Create a Claude agent
+	claudeAgent := agent.Agent{
+		ID:             "claude-123",
+		Source:         agent.SourceClaude,
+		TranscriptPath: transcriptFile,
+	}
+
+	// Execute the command
+	cmd := loadTranscriptCmd(claudeAgent)
+	msg := cmd()
+
+	// Should succeed and return a transcriptMsg
+	switch m := msg.(type) {
+	case transcriptMsg:
+		if len(m.entries) == 0 {
+			t.Error("Claude agent transcript should not be empty")
+		}
+		// First entry should be user type
+		if m.entries[0].Type != "user" {
+			t.Errorf("first entry type = %q, want 'user'", m.entries[0].Type)
+		}
+	case errMsg:
+		t.Errorf("loadTranscriptCmd returned error: %v", m)
+	default:
+		t.Errorf("unexpected message type: %T", msg)
+	}
+}
+
+func TestConvertCodexEntries_ConsistentContentType(t *testing.T) {
+	// All entry types from convertCodexEntries should have []interface{} Content type
+	// This ensures consistent handling in formatTranscript and Entry methods
+	entries := []codex.TranscriptEntry{
+		{Type: "message", Content: "Hello world"},
+		{Type: "reasoning", Content: "Thinking..."},
+		{Type: "tool", Content: "[tool: Bash]"},
+		{Type: "tool_output", Content: "command output here"},
+	}
+
+	converted := convertCodexEntries(entries)
+
+	if len(converted) != 4 {
+		t.Fatalf("expected 4 entries, got %d", len(converted))
+	}
+
+	for i, entry := range converted {
+		// All Content should be []interface{}, not string
+		content := entry.Message.Content
+		switch content.(type) {
+		case []interface{}:
+			// This is correct
+		case string:
+			t.Errorf("entry %d (%s) has string Content, expected []interface{}", i, entries[i].Type)
+		default:
+			t.Errorf("entry %d (%s) has unexpected Content type: %T", i, entries[i].Type, content)
+		}
 	}
 }

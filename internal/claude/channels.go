@@ -6,24 +6,10 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/sky-xo/june/internal/agent"
+	"github.com/sky-xo/june/internal/db"
 )
-
-// Channel represents a group of agents from a branch/worktree.
-type Channel struct {
-	Name   string  // Display name like "june:main" or "june:channels"
-	Dir    string  // Full path to Claude project directory
-	Agents []Agent // Agents in this channel
-}
-
-// HasRecentActivity returns true if any agent is active or was modified recently.
-func (c Channel) HasRecentActivity() bool {
-	for _, a := range c.Agents {
-		if a.IsActive() || a.IsRecent() {
-			return true
-		}
-	}
-	return false
-}
 
 // FindRelatedProjectDirs finds all Claude project directories that share
 // the same base project path (main repo + worktrees).
@@ -85,45 +71,65 @@ func ExtractChannelName(baseDir, projectDir, repoName string) string {
 	return repoName + ":" + suffix
 }
 
-// ScanChannels scans all related project directories and returns channels
-// sorted by most recent agent activity (channels with active/recent agents first).
-func ScanChannels(claudeProjectsDir, basePath, repoName string) ([]Channel, error) {
+// ScanChannels scans Claude project directories and merges Codex agents.
+// It returns unified channels containing both Claude and Codex agents.
+func ScanChannels(claudeProjectsDir, basePath, repoName string, codexDB *db.DB) ([]agent.Channel, error) {
 	relatedDirs := FindRelatedProjectDirs(claudeProjectsDir, basePath)
-	if len(relatedDirs) == 0 {
-		return nil, nil
-	}
+
+	// Map branch -> agents
+	channelMap := make(map[string][]agent.Agent)
 
 	baseDir := strings.ReplaceAll(basePath, "/", "-")
-	var channels []Channel
 
+	// 1. Scan Claude agents
 	for _, dir := range relatedDirs {
 		dirName := filepath.Base(dir)
 		channelName := ExtractChannelName(baseDir, dirName, repoName)
 
-		agents, err := ScanAgents(dir)
+		claudeAgents, err := ScanAgents(dir)
 		if err != nil {
-			continue // Skip dirs we can't read
+			continue
 		}
 
-		if len(agents) == 0 {
-			continue // Skip empty channels
-		}
+		// Extract branch from channel name (e.g., "june:main" -> "main")
+		branch := strings.TrimPrefix(channelName, repoName+":")
 
-		channels = append(channels, Channel{
-			Name:   channelName,
-			Dir:    dir,
-			Agents: agents,
-		})
+		for _, ca := range claudeAgents {
+			channelMap[channelName] = append(channelMap[channelName], ca.ToUnified(basePath, branch))
+		}
 	}
 
-	// Sort channels: recent-activity first (alphabetical), then inactive (alphabetical)
+	// 2. Load Codex agents for this repo
+	if codexDB != nil {
+		codexAgents, err := codexDB.ListAgentsByRepo(basePath)
+		if err == nil {
+			for _, ca := range codexAgents {
+				channelName := repoName + ":" + ca.Branch
+				if ca.Branch == "" {
+					channelName = repoName + ":main"
+				}
+				channelMap[channelName] = append(channelMap[channelName], ca.ToUnified())
+			}
+		}
+	}
+
+	// 3. Build and sort channels
+	var channels []agent.Channel
+	for name, agents := range channelMap {
+		// Sort agents within channel by LastActivity (most recent first)
+		sort.Slice(agents, func(i, j int) bool {
+			return agents[i].LastActivity.After(agents[j].LastActivity)
+		})
+		channels = append(channels, agent.Channel{Name: name, Agents: agents})
+	}
+
+	// Sort: recent activity first, then alphabetically
 	sort.Slice(channels, func(i, j int) bool {
 		iRecent := channels[i].HasRecentActivity()
 		jRecent := channels[j].HasRecentActivity()
 		if iRecent != jRecent {
-			return iRecent // recent channels come first
+			return iRecent
 		}
-		// Within same activity group, sort alphabetically by name
 		return channels[i].Name < channels[j].Name
 	})
 

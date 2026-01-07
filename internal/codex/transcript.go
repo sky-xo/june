@@ -62,11 +62,7 @@ func parseEntry(data []byte) TranscriptEntry {
 	payloadType, _ := payload["type"].(string)
 
 	switch payloadType {
-	case "agent_reasoning":
-		// event_msg with payload.type = "agent_reasoning", payload.text = content
-		if text, ok := payload["text"].(string); ok {
-			return TranscriptEntry{Type: "reasoning", Content: text}
-		}
+	// Skip agent_reasoning - it duplicates "reasoning" response_item
 	case "reasoning":
 		// response_item with payload.type = "reasoning", summary[0].text = content
 		if summary, ok := payload["summary"].([]interface{}); ok && len(summary) > 0 {
@@ -77,10 +73,15 @@ func parseEntry(data []byte) TranscriptEntry {
 			}
 		}
 	case "message":
-		// response_item with payload.type = "message", payload.text = content
-		if text, ok := payload["text"].(string); ok {
-			return TranscriptEntry{Type: "message", Content: text}
+		// response_item with payload.type = "message", content[0].text = content
+		if content, ok := payload["content"].([]interface{}); ok && len(content) > 0 {
+			if first, ok := content[0].(map[string]interface{}); ok {
+				if text, ok := first["text"].(string); ok {
+					return TranscriptEntry{Type: "message", Content: text}
+				}
+			}
 		}
+	// Skip agent_message - it duplicates "message" response_item
 	case "function_call":
 		// response_item with payload.type = "function_call", payload.name = tool name
 		if name, ok := payload["name"].(string); ok {
