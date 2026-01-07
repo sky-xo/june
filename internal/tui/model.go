@@ -360,6 +360,46 @@ func (m Model) findAgentIndexByID(agentID string) (int, bool) {
 	return -1, false
 }
 
+// findNearestSelectableIdx finds the nearest selectable (non-header) index.
+// If fromIdx is already selectable, returns it. Otherwise searches forward then backward.
+// Returns 0 if no selectable items exist.
+func (m Model) findNearestSelectableIdx(fromIdx int) int {
+	items := m.sidebarItems()
+	if len(items) == 0 {
+		return 0
+	}
+
+	// Clamp to valid range
+	if fromIdx < 0 {
+		fromIdx = 0
+	}
+	if fromIdx >= len(items) {
+		fromIdx = len(items) - 1
+	}
+
+	// If current is selectable, use it
+	if !items[fromIdx].isHeader && !items[fromIdx].isExpander {
+		return fromIdx
+	}
+
+	// Search forward first
+	for i := fromIdx + 1; i < len(items); i++ {
+		if !items[i].isHeader && !items[i].isExpander {
+			return i
+		}
+	}
+
+	// Search backward
+	for i := fromIdx - 1; i >= 0; i-- {
+		if !items[i].isHeader && !items[i].isExpander {
+			return i
+		}
+	}
+
+	// No selectable items, return original (clamped)
+	return fromIdx
+}
+
 // countSeparatorsBefore returns the number of blank separator lines that would appear
 // before the given item index. Separators appear before each channel header except the first.
 func (m Model) countSeparatorsBefore(itemIdx int) int {

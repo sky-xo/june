@@ -1187,3 +1187,66 @@ func TestModel_FindAgentIndexByID(t *testing.T) {
 		})
 	}
 }
+
+func TestModel_FindNearestSelectableIdx(t *testing.T) {
+	now := time.Now()
+	m := Model{
+		channels: []agent.Channel{
+			{
+				Name: "test:main",
+				Agents: []agent.Agent{
+					{ID: "agent-a", LastActivity: now},
+					{ID: "agent-b", LastActivity: now},
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		name     string
+		fromIdx  int
+		wantIdx  int
+	}{
+		{
+			name:     "at valid agent stays there",
+			fromIdx:  1,
+			wantIdx:  1,
+		},
+		{
+			name:     "at header moves to next agent",
+			fromIdx:  0,
+			wantIdx:  1,
+		},
+		{
+			name:     "beyond list moves to last agent",
+			fromIdx:  10,
+			wantIdx:  2, // last agent (index 2 after header)
+		},
+		{
+			name:     "negative moves to first agent",
+			fromIdx:  -1,
+			wantIdx:  1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotIdx := m.findNearestSelectableIdx(tt.fromIdx)
+			if gotIdx != tt.wantIdx {
+				t.Errorf("findNearestSelectableIdx(%d) = %d, want %d",
+					tt.fromIdx, gotIdx, tt.wantIdx)
+			}
+		})
+	}
+}
+
+func TestModel_FindNearestSelectableIdx_EmptyChannels(t *testing.T) {
+	m := Model{
+		channels: []agent.Channel{},
+	}
+
+	gotIdx := m.findNearestSelectableIdx(0)
+	if gotIdx != 0 {
+		t.Errorf("findNearestSelectableIdx(0) with empty channels = %d, want 0", gotIdx)
+	}
+}
