@@ -12,6 +12,7 @@ const (
 const (
 	SourceClaude = "claude"
 	SourceCodex  = "codex"
+	SourceGemini = "gemini"
 )
 
 // Agent represents any AI coding agent (Claude, Codex, etc.)
