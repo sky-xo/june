@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -69,4 +70,30 @@ func SessionsDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, ".june", "gemini", "sessions"), nil
+}
+
+// MCPServerConfig represents an MCP server for Gemini's settings.json
+type MCPServerConfig struct {
+	Command string            `json:"command"`
+	Args    []string          `json:"args"`
+	Env     map[string]string `json:"env,omitempty"`
+}
+
+// WriteSettings writes a settings.json file with MCP server configuration.
+// Overwrites any existing settings.json.
+func WriteSettings(geminiHome string, mcpServers map[string]MCPServerConfig) error {
+	if mcpServers == nil {
+		mcpServers = make(map[string]MCPServerConfig)
+	}
+
+	settings := map[string]interface{}{
+		"mcpServers": mcpServers,
+	}
+
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(filepath.Join(geminiHome, "settings.json"), data, 0600)
 }
