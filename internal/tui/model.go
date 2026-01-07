@@ -400,6 +400,27 @@ func (m Model) findNearestSelectableIdx(fromIdx int) int {
 	return fromIdx
 }
 
+// preserveSelectionAfterRefresh maintains selection by agent ID after channels are updated.
+// If the selected agent moved, updates selectedIdx to its new position.
+// If the selected agent disappeared, selects the nearest neighbor.
+func (m *Model) preserveSelectionAfterRefresh() {
+	// Try to find the previously selected agent
+	if newIdx, found := m.findAgentIndexByID(m.selectedAgentID); found {
+		m.selectedIdx = newIdx
+		return
+	}
+
+	// Agent not found - select nearest neighbor from old position
+	m.selectedIdx = m.findNearestSelectableIdx(m.selectedIdx)
+
+	// Update selectedAgentID to match new selection
+	if agent := m.SelectedAgent(); agent != nil {
+		m.selectedAgentID = agent.ID
+	} else {
+		m.selectedAgentID = ""
+	}
+}
+
 // countSeparatorsBefore returns the number of blank separator lines that would appear
 // before the given item index. Separators appear before each channel header except the first.
 func (m Model) countSeparatorsBefore(itemIdx int) int {

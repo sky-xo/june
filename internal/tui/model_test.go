@@ -1250,3 +1250,91 @@ func TestModel_FindNearestSelectableIdx_EmptyChannels(t *testing.T) {
 		t.Errorf("findNearestSelectableIdx(0) with empty channels = %d, want 0", gotIdx)
 	}
 }
+
+func TestModel_PreservesSelectionOnRefresh(t *testing.T) {
+	now := time.Now()
+	// Initial state: agent-b is selected
+	m := Model{
+		channels: []agent.Channel{
+			{
+				Name: "test:main",
+				Agents: []agent.Agent{
+					{ID: "agent-a", LastActivity: now},
+					{ID: "agent-b", LastActivity: now.Add(-5 * time.Second)},
+				},
+			},
+		},
+		selectedIdx:     2, // agent-b is at index 2 (after header and agent-a)
+		selectedAgentID: "agent-b",
+		transcripts:     make(map[string][]claude.Entry),
+	}
+
+	// Simulate refresh where agents swap positions
+	// agent-b is now first (more recently active)
+	newChannels := []agent.Channel{
+		{
+			Name: "test:main",
+			Agents: []agent.Agent{
+				{ID: "agent-b", LastActivity: now},                       // moved to first
+				{ID: "agent-a", LastActivity: now.Add(-5 * time.Second)}, // moved to second
+			},
+		},
+	}
+
+	// Apply the refresh logic
+	m.channels = newChannels
+	m.preserveSelectionAfterRefresh()
+
+	// Selection should have moved to follow agent-b
+	if m.selectedIdx != 1 {
+		t.Errorf("selectedIdx = %d, want 1 (agent-b's new position)", m.selectedIdx)
+	}
+	if m.selectedAgentID != "agent-b" {
+		t.Errorf("selectedAgentID = %q, want %q", m.selectedAgentID, "agent-b")
+	}
+}
+
+func TestModel_SelectsNearestWhenAgentDisappears(t *testing.T) {
+	now := time.Now()
+	m := Model{
+		channels: []agent.Channel{
+			{
+				Name: "test:main",
+				Agents: []agent.Agent{
+					{ID: "agent-a", LastActivity: now},
+					{ID: "agent-b", LastActivity: now},
+				},
+			},
+		},
+		selectedIdx:     2, // agent-b
+		selectedAgentID: "agent-b",
+		transcripts:     make(map[string][]claude.Entry),
+	}
+
+	// Refresh with agent-b gone
+	newChannels := []agent.Channel{
+		{
+			Name: "test:main",
+			Agents: []agent.Agent{
+				{ID: "agent-a", LastActivity: now},
+				{ID: "agent-c", LastActivity: now}, // new agent, agent-b is gone
+			},
+		},
+	}
+
+	m.channels = newChannels
+	m.preserveSelectionAfterRefresh()
+
+	// Should select nearest neighbor (agent-c at same position, or agent-a)
+	selectedAgent := m.SelectedAgent()
+	if selectedAgent == nil {
+		t.Fatal("expected an agent to be selected")
+	}
+	if selectedAgent.ID != "agent-c" && selectedAgent.ID != "agent-a" {
+		t.Errorf("expected agent-a or agent-c, got %q", selectedAgent.ID)
+	}
+	// selectedAgentID should be updated to the new selection
+	if m.selectedAgentID == "agent-b" {
+		t.Error("selectedAgentID should have been updated from agent-b")
+	}
+}
