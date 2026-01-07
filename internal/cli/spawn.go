@@ -19,34 +19,51 @@ func newSpawnCmd() *cobra.Command {
 	var (
 		name            string
 		model           string
+		yolo            bool
+		sandbox         string
 		reasoningEffort string
 		maxTokens       int
-		sandbox         string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "spawn <type> <task>",
 		Short: "Spawn an agent",
-		Long:  "Spawn a Codex agent to perform a task",
+		Long:  "Spawn a Codex or Gemini agent to perform a task",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			agentType := args[0]
 			task := args[1]
 
-			if agentType != "codex" {
-				return fmt.Errorf("unsupported agent type: %s (only 'codex' is supported)", agentType)
+			switch agentType {
+			case "codex":
+				// For Codex, if --sandbox was passed without value, default to workspace-write
+				codexSandbox := sandbox
+				if cmd.Flags().Changed("sandbox") && sandbox == "" {
+					codexSandbox = "workspace-write"
+				}
+				return runSpawnCodex(name, task, model, reasoningEffort, codexSandbox, maxTokens)
+			case "gemini":
+				// For Gemini, sandbox is boolean - true if flag was passed at all
+				geminiSandbox := cmd.Flags().Changed("sandbox")
+				return runSpawnGemini(name, task, model, yolo, geminiSandbox)
+			default:
+				return fmt.Errorf("unsupported agent type: %s (supported: codex, gemini)", agentType)
 			}
-
-			// Pass name directly as prefix (empty string triggers auto-generation)
-			return runSpawnCodex(name, task, model, reasoningEffort, sandbox, maxTokens)
 		},
 	}
 
+	// Shared flags
 	cmd.Flags().StringVar(&name, "name", "", "Name prefix for the agent (auto-generated if omitted)")
-	cmd.Flags().StringVar(&model, "model", "", "Codex model to use")
-	cmd.Flags().StringVar(&reasoningEffort, "reasoning-effort", "", "Reasoning effort (minimal|low|medium|high|xhigh)")
-	cmd.Flags().IntVar(&maxTokens, "max-tokens", 0, "Max output tokens")
-	cmd.Flags().StringVar(&sandbox, "sandbox", "", "Sandbox mode (read-only|workspace-write|danger-full-access)")
+	cmd.Flags().StringVar(&model, "model", "", "Model to use")
+	cmd.Flags().StringVar(&sandbox, "sandbox", "", "Enable sandbox (Codex: optional value read-only|workspace-write|danger-full-access, defaults to workspace-write; Gemini: boolean)")
+	cmd.Flags().Lookup("sandbox").NoOptDefVal = "" // Allow --sandbox without value
+
+	// Codex-specific flags
+	cmd.Flags().StringVar(&reasoningEffort, "reasoning-effort", "", "Reasoning effort (codex only)")
+	cmd.Flags().IntVar(&maxTokens, "max-tokens", 0, "Max output tokens (codex only)")
+
+	// Gemini-specific flags
+	cmd.Flags().BoolVar(&yolo, "yolo", false, "Auto-approve all actions (gemini only, default is auto_edit)")
 
 	return cmd
 }
