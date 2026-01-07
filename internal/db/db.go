@@ -96,21 +96,30 @@ func Open(path string) (*DB, error) {
 
 // migrate runs schema migrations for existing databases
 func migrate(db *sql.DB) error {
-	// Check if repo_path column exists
-	var count int
-	err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('agents') WHERE name='repo_path'`).Scan(&count)
+	// Check if repo_path column exists and add if missing
+	var repoPathCount int
+	err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('agents') WHERE name='repo_path'`).Scan(&repoPathCount)
 	if err != nil {
 		return err
 	}
-	if count == 0 {
-		// Add missing columns
+	if repoPathCount == 0 {
 		if _, err := db.Exec(`ALTER TABLE agents ADD COLUMN repo_path TEXT DEFAULT ''`); err != nil {
 			return err
 		}
+	}
+
+	// Check if branch column exists independently and add if missing
+	var branchCount int
+	err = db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('agents') WHERE name='branch'`).Scan(&branchCount)
+	if err != nil {
+		return err
+	}
+	if branchCount == 0 {
 		if _, err := db.Exec(`ALTER TABLE agents ADD COLUMN branch TEXT DEFAULT ''`); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 

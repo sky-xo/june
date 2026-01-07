@@ -80,3 +80,37 @@ func TestEnsureCodexHome_NoAuthJsonOK(t *testing.T) {
 		t.Error("codex home directory was not created")
 	}
 }
+
+func TestEnsureCodexHome_DoesNotOverwriteExistingAuthJson(t *testing.T) {
+	tmpDir := t.TempDir()
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	// Create fake user codex with auth.json (source)
+	userCodex := filepath.Join(tmpDir, ".codex")
+	os.MkdirAll(userCodex, 0755)
+	newContent := []byte(`{"token":"new-token"}`)
+	os.WriteFile(filepath.Join(userCodex, "auth.json"), newContent, 0600)
+
+	// Pre-create june codex home with existing auth.json (destination)
+	juneCodex := filepath.Join(tmpDir, ".june", "codex")
+	os.MkdirAll(juneCodex, 0755)
+	existingContent := []byte(`{"token":"existing-token"}`)
+	os.WriteFile(filepath.Join(juneCodex, "auth.json"), existingContent, 0600)
+
+	// Call EnsureCodexHome - should NOT overwrite the existing auth.json
+	codexHome, err := EnsureCodexHome()
+	if err != nil {
+		t.Fatalf("EnsureCodexHome failed: %v", err)
+	}
+
+	// Verify auth.json was NOT overwritten
+	data, err := os.ReadFile(filepath.Join(codexHome, "auth.json"))
+	if err != nil {
+		t.Fatalf("failed to read auth.json: %v", err)
+	}
+	if string(data) != string(existingContent) {
+		t.Errorf("auth.json was overwritten! got %q, want %q", string(data), string(existingContent))
+	}
+}

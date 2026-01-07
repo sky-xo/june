@@ -126,7 +126,12 @@ func convertCodexEntries(codexEntries []codex.TranscriptEntry) []claude.Entry {
 				Type: "user",
 				Message: claude.Message{
 					Role: "user",
-					Content: "  -> " + ce.Content,
+					Content: []interface{}{
+						map[string]interface{}{
+							"type": "tool_result",
+							"text": "  -> " + ce.Content,
+						},
+					},
 				},
 			}
 		default:

@@ -388,3 +388,51 @@ func TestAgent_ToUnified_FallsBackToSpawnedAt(t *testing.T) {
 			unified.LastActivity, spawnedAt)
 	}
 }
+
+func TestMigration_PartialMigration_AddsMissingBranchColumn(t *testing.T) {
+	// Create a DB with repo_path but NOT branch (partial migration scenario)
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	// Manually create schema with repo_path but not branch
+	rawDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = rawDB.Exec(`
+		CREATE TABLE agents (
+			name TEXT PRIMARY KEY,
+			ulid TEXT NOT NULL,
+			session_file TEXT NOT NULL,
+			cursor INTEGER DEFAULT 0,
+			pid INTEGER,
+			spawned_at TEXT NOT NULL,
+			repo_path TEXT DEFAULT ''
+		);
+		INSERT INTO agents (name, ulid, session_file, pid, spawned_at, repo_path)
+		VALUES ('partial-agent', 'ulid456', '/tmp/session.jsonl', 0, '2025-01-01T00:00:00Z', '/code/project');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawDB.Close()
+
+	// Now open with our Open() which should migrate and add the missing branch column
+	db, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer db.Close()
+
+	// Agent should be readable with empty branch
+	agent, err := db.GetAgent("partial-agent")
+	if err != nil {
+		t.Fatalf("GetAgent failed: %v", err)
+	}
+	if agent.RepoPath != "/code/project" {
+		t.Errorf("expected RepoPath '/code/project', got %q", agent.RepoPath)
+	}
+	if agent.Branch != "" {
+		t.Errorf("expected empty Branch for partially migrated agent, got %q", agent.Branch)
+	}
+}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/sky-xo/june/internal/agent"
 	"github.com/sky-xo/june/internal/claude"
+	"github.com/sky-xo/june/internal/codex"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -1090,5 +1091,35 @@ func TestLoadTranscriptCmd_UsesClaudeParserForClaudeAgent(t *testing.T) {
 		t.Errorf("loadTranscriptCmd returned error: %v", m)
 	default:
 		t.Errorf("unexpected message type: %T", msg)
+	}
+}
+
+func TestConvertCodexEntries_ConsistentContentType(t *testing.T) {
+	// All entry types from convertCodexEntries should have []interface{} Content type
+	// This ensures consistent handling in formatTranscript and Entry methods
+	entries := []codex.TranscriptEntry{
+		{Type: "message", Content: "Hello world"},
+		{Type: "reasoning", Content: "Thinking..."},
+		{Type: "tool", Content: "[tool: Bash]"},
+		{Type: "tool_output", Content: "command output here"},
+	}
+
+	converted := convertCodexEntries(entries)
+
+	if len(converted) != 4 {
+		t.Fatalf("expected 4 entries, got %d", len(converted))
+	}
+
+	for i, entry := range converted {
+		// All Content should be []interface{}, not string
+		content := entry.Message.Content
+		switch content.(type) {
+		case []interface{}:
+			// This is correct
+		case string:
+			t.Errorf("entry %d (%s) has string Content, expected []interface{}", i, entries[i].Type)
+		default:
+			t.Errorf("entry %d (%s) has unexpected Content type: %T", i, entries[i].Type, content)
+		}
 	}
 }

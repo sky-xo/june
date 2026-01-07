@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/sky-xo/june/internal/codex"
@@ -53,7 +54,10 @@ func runPeek(name string) error {
 		}
 		sessionFile = found
 		// Update in database
-		database.Exec("UPDATE agents SET session_file = ? WHERE name = ?", found, name)
+		if err := database.UpdateSessionFile(name, found); err != nil {
+			// Log warning but continue - this is not fatal
+			fmt.Fprintf(os.Stderr, "warning: failed to update session file in database: %v\n", err)
+		}
 	}
 
 	// Read from cursor

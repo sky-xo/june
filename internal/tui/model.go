@@ -1093,10 +1093,7 @@ func (m *Model) renderSidebarContent(width, height int) string {
 			// Text position stays the same whether active or not
 			a := item.agent
 
-			name := a.Name
-			if name == "" {
-				name = a.ID
-			}
+			name := a.DisplayName()
 			maxNameLen := width - 2 // 2 chars for prefix (dot+space or 2 spaces)
 			if len(name) > maxNameLen {
 				name = name[:maxNameLen]

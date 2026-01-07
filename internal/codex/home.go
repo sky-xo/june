@@ -26,11 +26,16 @@ func EnsureCodexHome() (string, error) {
 	authDst := filepath.Join(codexHome, "auth.json")
 
 	// Only copy if source exists and destination doesn't
-	if _, err := os.Stat(authDst); os.IsNotExist(err) {
-		if authData, err := os.ReadFile(authSrc); err == nil {
-			_ = os.WriteFile(authDst, authData, 0600)
+	// Use O_CREATE|O_EXCL for atomic create-if-not-exists to avoid TOCTOU race
+	if authData, err := os.ReadFile(authSrc); err == nil {
+		// Try to create the file exclusively - fails if it already exists
+		f, err := os.OpenFile(authDst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if err == nil {
+			_, _ = f.Write(authData)
+			f.Close()
 		}
 		// Ignore errors - auth.json is optional (user may not have authenticated yet)
+		// or file already exists (which is fine - don't overwrite)
 	}
 
 	return codexHome, nil
