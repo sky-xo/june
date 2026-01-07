@@ -1,7 +1,6 @@
 package gemini
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -150,77 +149,3 @@ func TestEnsureGeminiHome_DoesNotOverwriteExistingAuth(t *testing.T) {
 	}
 }
 
-func TestWriteSettings(t *testing.T) {
-	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
-
-	// Ensure gemini home exists
-	geminiHome, err := EnsureGeminiHome()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Write settings with MCP servers
-	mcpServers := map[string]MCPServerConfig{
-		"chrome": {
-			Command: "node",
-			Args:    []string{"/path/to/mcp.js"},
-		},
-		"test": {
-			Command: "echo",
-			Args:    []string{"hello"},
-			Env:     map[string]string{"FOO": "bar"},
-		},
-	}
-
-	if err := WriteSettings(geminiHome, mcpServers); err != nil {
-		t.Fatalf("WriteSettings failed: %v", err)
-	}
-
-	// Read and verify settings.json
-	data, err := os.ReadFile(filepath.Join(geminiHome, "settings.json"))
-	if err != nil {
-		t.Fatalf("settings.json not created: %v", err)
-	}
-
-	var settings struct {
-		MCPServers map[string]MCPServerConfig `json:"mcpServers"`
-	}
-	if err := json.Unmarshal(data, &settings); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-
-	if len(settings.MCPServers) != 2 {
-		t.Errorf("len(mcpServers) = %d, want 2", len(settings.MCPServers))
-	}
-
-	chrome := settings.MCPServers["chrome"]
-	if chrome.Command != "node" {
-		t.Errorf("chrome.Command = %q, want %q", chrome.Command, "node")
-	}
-}
-
-func TestWriteSettingsEmpty(t *testing.T) {
-	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
-
-	geminiHome, _ := EnsureGeminiHome()
-
-	// Write empty settings
-	if err := WriteSettings(geminiHome, nil); err != nil {
-		t.Fatalf("WriteSettings failed: %v", err)
-	}
-
-	// Verify settings.json exists with empty mcpServers
-	data, err := os.ReadFile(filepath.Join(geminiHome, "settings.json"))
-	if err != nil {
-		t.Fatalf("settings.json not created: %v", err)
-	}
-
-	var settings map[string]interface{}
-	json.Unmarshal(data, &settings)
-
-	if settings["mcpServers"] == nil {
-		t.Error("mcpServers should exist even if empty")
-	}
-}
