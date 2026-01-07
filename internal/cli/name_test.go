@@ -72,3 +72,26 @@ func TestBuildAgentName_SuffixLowercase(t *testing.T) {
 		t.Errorf("buildAgentName() = %q, want lowercase suffix", name)
 	}
 }
+
+func TestRandomHexSuffix(t *testing.T) {
+	suffix := randomHexSuffix()
+	if len(suffix) != 4 {
+		t.Errorf("randomHexSuffix() length = %d, want 4", len(suffix))
+	}
+	// Should be lowercase hex
+	pattern := regexp.MustCompile(`^[0-9a-f]{4}$`)
+	if !pattern.MatchString(suffix) {
+		t.Errorf("randomHexSuffix() = %q, want hex pattern", suffix)
+	}
+}
+
+func TestRandomHexSuffix_Unique(t *testing.T) {
+	seen := make(map[string]bool)
+	for i := 0; i < 100; i++ {
+		suffix := randomHexSuffix()
+		if seen[suffix] {
+			t.Logf("collision on %q (acceptable)", suffix)
+		}
+		seen[suffix] = true
+	}
+}

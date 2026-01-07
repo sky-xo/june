@@ -2,6 +2,7 @@ package cli
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"strings"
@@ -70,4 +71,13 @@ func buildAgentName(prefix, ulid string) string {
 	}
 	suffix := strings.ToLower(ulid[len(ulid)-4:])
 	return prefix + "-" + suffix
+}
+
+// randomHexSuffix generates 4 random hex chars for collision fallback
+func randomHexSuffix() string {
+	bytes := make([]byte, 2)
+	if _, err := rand.Read(bytes); err != nil {
+		panic(fmt.Sprintf("failed to generate random bytes: %v", err))
+	}
+	return hex.EncodeToString(bytes)
 }
