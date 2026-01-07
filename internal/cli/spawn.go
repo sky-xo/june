@@ -309,6 +309,8 @@ func runSpawnGemini(prefix, task string, model string, yolo, sandbox bool) error
 	}
 	if err := database.CreateAgent(agent); err != nil {
 		f.Close()
+		geminiCmd.Process.Kill()
+		geminiCmd.Wait()
 		return fmt.Errorf("failed to create agent record: %w", err)
 	}
 
