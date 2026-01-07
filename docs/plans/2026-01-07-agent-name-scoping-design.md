@@ -1,59 +1,54 @@
-# Agent Name Scoping & Auto-increment
+# Agent Naming: Error on Collision with Output
 
 ## Problem
 
-Agent names are currently globally unique across all projects/branches. This causes unnecessary collisions when reusing common names like "bugfix" across different branches or over time on the same branch.
+Agent names are globally unique, but the current behavior is suboptimal:
+1. On collision: unclear error message
+2. On success: silent (no confirmation of what was created)
 
 ## Design
 
-### Scoping
+### Keep Global Uniqueness
 
-Names become unique per `(repo_path, branch)` instead of globally.
+Names remain globally unique. No scoping to repo/branch - it adds complexity without enough benefit. The TUI already shows branch context visually.
 
-**Database change:**
-- Change primary key from `name` to composite `(repo_path, branch, name)`
-- `GetAgent(name)` becomes `GetAgent(repoPath, branch, name)`
-- Same for collision checks in `spawn.go`
+### Error on Collision
 
-**Effect:** "bugfix" on `main` and "bugfix" on `feature-x` can coexist. Different branches = different namespaces.
+When a name already exists, error with a helpful suggestion:
 
-### Auto-increment
-
-When a name collision occurs within the same branch, automatically suffix with `-2`, `-3`, etc.
-
-**Logic in `spawn.go`:**
-1. Check if "bugfix" exists for (repo, branch)
-2. If no → use "bugfix"
-3. If yes → find highest existing suffix, use next
-   - "bugfix" exists → try "bugfix-2"
-   - "bugfix-2" exists → try "bugfix-3"
-
-**Database:** Add `GetAgentsByPrefix(repoPath, branch, namePrefix)` to find all matching agents for suffix calculation.
-
-### Output
-
-On success, print just the assigned name to stdout:
-
-```bash
-$ june spawn codex "fix auth" --name bugfix
-bugfix
-
-$ june spawn codex "another fix" --name bugfix
-bugfix-2
+```
+Error: agent "bugfix" already exists (spawned 2 hours ago)
+Hint: use --name bugfix-2 or another unique name
 ```
 
-### CLI Changes
+This forces conscious choice of name, preventing accidental reference to old agents.
 
-`peek` and `logs` commands scope lookups by current repo/branch. `june peek bugfix` finds "bugfix" for the current branch, not globally.
+### Output Name on Success
 
-**Edge case:** Outside a git repo, repo_path and branch are empty strings. Names share the `("", "", name)` namespace - auto-increment still works.
+Print the assigned name to stdout:
+
+```bash
+$ june spawn codex "fix auth" --name fix-auth
+fix-auth
+```
+
+Confirms what was created. Useful for scripting and for Claude to capture the name.
+
+### Exact Match for peek/logs
+
+`june peek bugfix` finds only "bugfix", not "bugfix-2". Simple and predictable.
 
 ## Summary
 
 | Aspect | Current | New |
 |--------|---------|-----|
-| Uniqueness scope | Global | Per (repo, branch) |
-| On collision | Error | Auto-increment (-2, -3) |
+| Uniqueness scope | Global | Global (no change) |
+| On collision | Unclear error | Helpful error with suggestion |
 | Success output | Silent | Print assigned name |
-| `--name` flag | Required | Required (no change) |
-| `peek`/`logs` lookup | Global | Scoped to current repo/branch |
+| peek/logs lookup | Exact match | Exact match (no change) |
+
+## Implementation
+
+1. Update `spawn.go` collision error to include timestamp and suggestion
+2. Add `fmt.Println(name)` on successful spawn
+3. No database schema changes needed
