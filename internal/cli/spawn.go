@@ -29,7 +29,18 @@ func newSpawnCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "spawn <type> <task>",
 		Short: "Spawn an agent",
-		Long:  "Spawn a Codex or Gemini agent to perform a task",
+		Long: `Spawn a Codex or Gemini agent to perform a task.
+
+On success, prints the agent name to stdout (e.g., "swift-falcon-7d1e").
+Use this name with peek, logs, and other commands.
+
+Naming: --name sets a prefix; if omitted, an adjective-noun is auto-generated.
+A 4-char suffix is always appended to ensure uniqueness.
+
+Examples:
+  june spawn codex "fix the tests" --name refactor  # Output: refactor-9c4f
+  june spawn codex "add feature"                    # Output: swift-falcon-7d1e
+  june peek swift-falcon-7d1e                       # Show new output`,
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			agentType := args[0]
