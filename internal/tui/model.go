@@ -256,6 +256,7 @@ type Model struct {
 	codexDB           *db.DB                    // Codex agent database connection (reused across ticks)
 
 	selectedIdx        int           // Currently selected item index (across all channels + headers)
+	selectedAgentID    string        // ID of selected agent (for preserving selection across refreshes)
 	lastViewedAgent    *agent.Agent  // Last agent shown in right panel (persists when header selected)
 	sidebarOffset      int           // Scroll offset for the sidebar
 	lastNavWasKeyboard bool          // Track if last sidebar interaction was keyboard (for auto-scroll behavior)
@@ -342,6 +343,82 @@ func (m Model) sidebarItems() []sidebarItem {
 		}
 	}
 	return items
+}
+
+// findAgentIndexByID returns the sidebar index of an agent by its ID.
+// Returns (-1, false) if not found or ID is empty.
+func (m Model) findAgentIndexByID(agentID string) (int, bool) {
+	if agentID == "" {
+		return -1, false
+	}
+	items := m.sidebarItems()
+	for i, item := range items {
+		if item.agent != nil && item.agent.ID == agentID {
+			return i, true
+		}
+	}
+	return -1, false
+}
+
+// findNearestSelectableIdx finds the nearest selectable (non-header) index.
+// If fromIdx is already selectable, returns it. Otherwise searches forward then backward.
+// Returns 0 if no selectable items exist.
+func (m Model) findNearestSelectableIdx(fromIdx int) int {
+	items := m.sidebarItems()
+	if len(items) == 0 {
+		return 0
+	}
+
+	// Clamp to valid range
+	if fromIdx < 0 {
+		fromIdx = 0
+	}
+	if fromIdx >= len(items) {
+		fromIdx = len(items) - 1
+	}
+
+	// If current is selectable, use it
+	if !items[fromIdx].isHeader && !items[fromIdx].isExpander {
+		return fromIdx
+	}
+
+	// Search forward first
+	for i := fromIdx + 1; i < len(items); i++ {
+		if !items[i].isHeader && !items[i].isExpander {
+			return i
+		}
+	}
+
+	// Search backward
+	for i := fromIdx - 1; i >= 0; i-- {
+		if !items[i].isHeader && !items[i].isExpander {
+			return i
+		}
+	}
+
+	// No selectable items, return original (clamped)
+	return fromIdx
+}
+
+// preserveSelectionAfterRefresh maintains selection by agent ID after channels are updated.
+// If the selected agent moved, updates selectedIdx to its new position.
+// If the selected agent disappeared, selects the nearest neighbor.
+func (m *Model) preserveSelectionAfterRefresh() {
+	// Try to find the previously selected agent
+	if newIdx, found := m.findAgentIndexByID(m.selectedAgentID); found {
+		m.selectedIdx = newIdx
+		return
+	}
+
+	// Agent not found - select nearest neighbor from old position
+	m.selectedIdx = m.findNearestSelectableIdx(m.selectedIdx)
+
+	// Update selectedAgentID to match new selection
+	if agent := m.SelectedAgent(); agent != nil {
+		m.selectedAgentID = agent.ID
+	} else {
+		m.selectedAgentID = ""
+	}
 }
 
 // countSeparatorsBefore returns the number of blank separator lines that would appear
@@ -542,6 +619,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				nextIdx := m.nextSelectableIdx(m.selectedIdx, -1)
 				if nextIdx != -1 {
 					m.selectedIdx = nextIdx
+					if agent := m.SelectedAgent(); agent != nil {
+						m.selectedAgentID = agent.ID
+					}
 					m.lastNavWasKeyboard = true
 					m.ensureSelectedVisible()
 					if agent := m.SelectedAgent(); agent != nil {
@@ -560,6 +640,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				nextIdx := m.nextSelectableIdx(m.selectedIdx, 1)
 				if nextIdx != -1 {
 					m.selectedIdx = nextIdx
+					if agent := m.SelectedAgent(); agent != nil {
+						m.selectedAgentID = agent.ID
+					}
 					m.lastNavWasKeyboard = true
 					m.ensureSelectedVisible()
 					if agent := m.SelectedAgent(); agent != nil {
@@ -597,6 +680,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.selectedIdx = 0
 					}
 				}
+				if agent := m.SelectedAgent(); agent != nil {
+					m.selectedAgentID = agent.ID
+				}
 				m.lastNavWasKeyboard = true
 				if agent := m.SelectedAgent(); agent != nil {
 					m.lastViewedAgent = agent
@@ -633,6 +719,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.selectedIdx >= m.totalSidebarItems() {
 						m.selectedIdx = m.totalSidebarItems() - 1
 					}
+				}
+				if agent := m.SelectedAgent(); agent != nil {
+					m.selectedAgentID = agent.ID
 				}
 				m.lastNavWasKeyboard = true
 				if agent := m.SelectedAgent(); agent != nil {
@@ -733,6 +822,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				m.selectedIdx = itemIdx
+				if agent := m.SelectedAgent(); agent != nil {
+					m.selectedAgentID = agent.ID
+				}
 
 				// If clicked on an expander, toggle expansion
 				if item.isExpander {
@@ -836,15 +928,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case channelsMsg:
 		m.channels = msg
-		// After loading channels, ensure we're not on a header
-		if len(m.channels) > 0 {
-			items := m.sidebarItems()
-			if len(items) > 0 && m.selectedIdx < len(items) && items[m.selectedIdx].isHeader {
-				if nextIdx := m.nextSelectableIdx(m.selectedIdx, 1); nextIdx != -1 {
-					m.selectedIdx = nextIdx
-				}
-			}
-		}
+		m.preserveSelectionAfterRefresh()
 		if agent := m.SelectedAgent(); agent != nil {
 			m.lastViewedAgent = agent
 			cmds = append(cmds, loadTranscriptCmd(*agent))

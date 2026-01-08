@@ -39,9 +39,9 @@ func TestAgent_IsActive(t *testing.T) {
 		t.Error("agent modified 5s ago should be active")
 	}
 
-	inactive := Agent{LastActivity: time.Now().Add(-30 * time.Second)}
+	inactive := Agent{LastActivity: time.Now().Add(-25 * time.Second)}
 	if inactive.IsActive() {
-		t.Error("agent modified 30s ago should not be active")
+		t.Error("agent modified 25s ago should not be active")
 	}
 }
 

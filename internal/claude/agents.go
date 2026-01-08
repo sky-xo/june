@@ -13,7 +13,7 @@ import (
 	"github.com/sky-xo/june/internal/agent"
 )
 
-const activeThreshold = 10 * time.Second
+const activeThreshold = 20 * time.Second
 const recentThreshold = 2 * time.Hour
 
 // Agent represents a Claude Code subagent session.

@@ -1123,3 +1123,218 @@ func TestConvertCodexEntries_ConsistentContentType(t *testing.T) {
 		}
 	}
 }
+
+func TestModel_FindAgentIndexByID(t *testing.T) {
+	now := time.Now()
+	m := Model{
+		channels: []agent.Channel{
+			{
+				Name: "test:main",
+				Agents: []agent.Agent{
+					{ID: "agent-a", LastActivity: now},
+					{ID: "agent-b", LastActivity: now},
+					{ID: "agent-c", LastActivity: now},
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		name      string
+		agentID   string
+		wantIdx   int
+		wantFound bool
+	}{
+		{
+			name:      "finds first agent",
+			agentID:   "agent-a",
+			wantIdx:   1, // index 0 is the header
+			wantFound: true,
+		},
+		{
+			name:      "finds middle agent",
+			agentID:   "agent-b",
+			wantIdx:   2,
+			wantFound: true,
+		},
+		{
+			name:      "finds last agent",
+			agentID:   "agent-c",
+			wantIdx:   3,
+			wantFound: true,
+		},
+		{
+			name:      "returns false for unknown agent",
+			agentID:   "agent-unknown",
+			wantIdx:   -1,
+			wantFound: false,
+		},
+		{
+			name:      "returns false for empty ID",
+			agentID:   "",
+			wantIdx:   -1,
+			wantFound: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotIdx, gotFound := m.findAgentIndexByID(tt.agentID)
+			if gotIdx != tt.wantIdx || gotFound != tt.wantFound {
+				t.Errorf("findAgentIndexByID(%q) = (%d, %v), want (%d, %v)",
+					tt.agentID, gotIdx, gotFound, tt.wantIdx, tt.wantFound)
+			}
+		})
+	}
+}
+
+func TestModel_FindNearestSelectableIdx(t *testing.T) {
+	now := time.Now()
+	m := Model{
+		channels: []agent.Channel{
+			{
+				Name: "test:main",
+				Agents: []agent.Agent{
+					{ID: "agent-a", LastActivity: now},
+					{ID: "agent-b", LastActivity: now},
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		name     string
+		fromIdx  int
+		wantIdx  int
+	}{
+		{
+			name:     "at valid agent stays there",
+			fromIdx:  1,
+			wantIdx:  1,
+		},
+		{
+			name:     "at header moves to next agent",
+			fromIdx:  0,
+			wantIdx:  1,
+		},
+		{
+			name:     "beyond list moves to last agent",
+			fromIdx:  10,
+			wantIdx:  2, // last agent (index 2 after header)
+		},
+		{
+			name:     "negative moves to first agent",
+			fromIdx:  -1,
+			wantIdx:  1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotIdx := m.findNearestSelectableIdx(tt.fromIdx)
+			if gotIdx != tt.wantIdx {
+				t.Errorf("findNearestSelectableIdx(%d) = %d, want %d",
+					tt.fromIdx, gotIdx, tt.wantIdx)
+			}
+		})
+	}
+}
+
+func TestModel_FindNearestSelectableIdx_EmptyChannels(t *testing.T) {
+	m := Model{
+		channels: []agent.Channel{},
+	}
+
+	gotIdx := m.findNearestSelectableIdx(0)
+	if gotIdx != 0 {
+		t.Errorf("findNearestSelectableIdx(0) with empty channels = %d, want 0", gotIdx)
+	}
+}
+
+func TestModel_PreservesSelectionOnRefresh(t *testing.T) {
+	now := time.Now()
+	// Initial state: agent-b is selected
+	m := Model{
+		channels: []agent.Channel{
+			{
+				Name: "test:main",
+				Agents: []agent.Agent{
+					{ID: "agent-a", LastActivity: now},
+					{ID: "agent-b", LastActivity: now.Add(-5 * time.Second)},
+				},
+			},
+		},
+		selectedIdx:     2, // agent-b is at index 2 (after header and agent-a)
+		selectedAgentID: "agent-b",
+		transcripts:     make(map[string][]claude.Entry),
+	}
+
+	// Simulate refresh where agents swap positions
+	// agent-b is now first (more recently active)
+	newChannels := []agent.Channel{
+		{
+			Name: "test:main",
+			Agents: []agent.Agent{
+				{ID: "agent-b", LastActivity: now},                       // moved to first
+				{ID: "agent-a", LastActivity: now.Add(-5 * time.Second)}, // moved to second
+			},
+		},
+	}
+
+	// Apply the refresh logic
+	m.channels = newChannels
+	m.preserveSelectionAfterRefresh()
+
+	// Selection should have moved to follow agent-b
+	if m.selectedIdx != 1 {
+		t.Errorf("selectedIdx = %d, want 1 (agent-b's new position)", m.selectedIdx)
+	}
+	if m.selectedAgentID != "agent-b" {
+		t.Errorf("selectedAgentID = %q, want %q", m.selectedAgentID, "agent-b")
+	}
+}
+
+func TestModel_SelectsNearestWhenAgentDisappears(t *testing.T) {
+	now := time.Now()
+	m := Model{
+		channels: []agent.Channel{
+			{
+				Name: "test:main",
+				Agents: []agent.Agent{
+					{ID: "agent-a", LastActivity: now},
+					{ID: "agent-b", LastActivity: now},
+				},
+			},
+		},
+		selectedIdx:     2, // agent-b
+		selectedAgentID: "agent-b",
+		transcripts:     make(map[string][]claude.Entry),
+	}
+
+	// Refresh with agent-b gone
+	newChannels := []agent.Channel{
+		{
+			Name: "test:main",
+			Agents: []agent.Agent{
+				{ID: "agent-a", LastActivity: now},
+				{ID: "agent-c", LastActivity: now}, // new agent, agent-b is gone
+			},
+		},
+	}
+
+	m.channels = newChannels
+	m.preserveSelectionAfterRefresh()
+
+	// Should select nearest neighbor (agent-c at same position, or agent-a)
+	selectedAgent := m.SelectedAgent()
+	if selectedAgent == nil {
+		t.Fatal("expected an agent to be selected")
+	}
+	if selectedAgent.ID != "agent-c" && selectedAgent.ID != "agent-a" {
+		t.Errorf("expected agent-a or agent-c, got %q", selectedAgent.ID)
+	}
+	// selectedAgentID should be updated to the new selection
+	if m.selectedAgentID == "agent-b" {
+		t.Error("selectedAgentID should have been updated from agent-b")
+	}
+}
