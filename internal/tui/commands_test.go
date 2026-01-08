@@ -130,3 +130,50 @@ func TestConvertGeminiEntriesShellNormalized(t *testing.T) {
 		t.Errorf("ToolInput()[command] = %v, want %q", toolInput["command"], "ls -la")
 	}
 }
+
+func TestConvertCodexEntriesRichFormatting(t *testing.T) {
+	// Codex shell_command should normalize to Bash and produce rich summary
+	codexEntries := []codex.TranscriptEntry{
+		{
+			Type:      "tool",
+			ToolName:  "shell_command",
+			ToolInput: map[string]interface{}{
+				"command": "go test ./...",
+			},
+		},
+	}
+
+	entries := convertCodexEntries(codexEntries)
+
+	// After normalization: Bash with command
+	// ToolSummary should return "Bash: go test ./..."
+	summary := entries[0].ToolSummary()
+	if summary != "Bash: go test ./..." {
+		t.Errorf("ToolSummary() = %q, want %q", summary, "Bash: go test ./...")
+	}
+}
+
+func TestConvertGeminiEntriesRichFormatting(t *testing.T) {
+	// Gemini read_file should normalize to Read with file_path
+	geminiEntries := []gemini.TranscriptEntry{
+		{
+			Type:      "tool",
+			ToolName:  "read_file",
+			ToolInput: map[string]interface{}{
+				"path": "/Users/test/code/project/main.go",
+			},
+		},
+	}
+
+	entries := convertGeminiEntries(geminiEntries)
+
+	// After normalization: Read with file_path
+	// ToolSummary should include shortened path
+	summary := entries[0].ToolSummary()
+	if summary == "" || summary == "Read" {
+		t.Errorf("ToolSummary() = %q, want path info like 'Read: project/main.go'", summary)
+	}
+	if entries[0].ToolName() != "Read" {
+		t.Errorf("ToolName() = %q, want %q", entries[0].ToolName(), "Read")
+	}
+}
