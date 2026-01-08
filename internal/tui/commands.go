@@ -114,6 +114,39 @@ func normalizeCodexTool(name string, input map[string]interface{}) (string, map[
 	}
 }
 
+// normalizeGeminiTool converts Gemini tool names/params to Claude equivalents
+func normalizeGeminiTool(name string, input map[string]interface{}) (string, map[string]interface{}) {
+	normalized := make(map[string]interface{})
+	for k, v := range input {
+		normalized[k] = v
+	}
+
+	switch name {
+	case "shell":
+		return "Bash", normalized
+	case "read_file":
+		if path, ok := normalized["path"]; ok {
+			delete(normalized, "path")
+			normalized["file_path"] = path
+		}
+		return "Read", normalized
+	case "write_file":
+		if path, ok := normalized["path"]; ok {
+			delete(normalized, "path")
+			normalized["file_path"] = path
+		}
+		return "Write", normalized
+	case "edit_file":
+		if path, ok := normalized["path"]; ok {
+			delete(normalized, "path")
+			normalized["file_path"] = path
+		}
+		return "Edit", normalized
+	default:
+		return name, normalized
+	}
+}
+
 // convertCodexEntries converts Codex transcript entries to Claude entry format for TUI display.
 func convertCodexEntries(codexEntries []codex.TranscriptEntry) []claude.Entry {
 	entries := make([]claude.Entry, 0, len(codexEntries))
@@ -221,15 +254,17 @@ func convertGeminiEntries(geminiEntries []gemini.TranscriptEntry) []claude.Entry
 				},
 			}
 		case "tool":
-			// Gemini tool call -> Claude assistant with tool info
+			// Normalize Gemini tool name/params to Claude equivalents for rich formatting
+			normalizedName, normalizedInput := normalizeGeminiTool(ge.ToolName, ge.ToolInput)
 			entry = claude.Entry{
 				Type: "assistant",
 				Message: claude.Message{
 					Role: "assistant",
 					Content: []interface{}{
 						map[string]interface{}{
-							"type": "text",
-							"text": ge.Content, // Already formatted as "[tool: name]"
+							"type":  "tool_use",
+							"name":  normalizedName,
+							"input": normalizedInput,
 						},
 					},
 				},
