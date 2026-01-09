@@ -1,0 +1,332 @@
+package cli
+
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"testing"
+)
+
+func TestTaskCommandExists(t *testing.T) {
+	cmd := newTaskCmd()
+	if cmd.Use != "task" {
+		t.Errorf("Use = %q, want %q", cmd.Use, "task")
+	}
+
+	// Check subcommands exist
+	subcommands := make(map[string]bool)
+	for _, sub := range cmd.Commands() {
+		subcommands[sub.Name()] = true
+	}
+
+	expected := []string{"create", "list", "update", "delete"}
+	for _, name := range expected {
+		if !subcommands[name] {
+			t.Errorf("Missing subcommand: %s", name)
+		}
+	}
+}
+
+func setupTestRepo(t *testing.T) string {
+	t.Helper()
+	tmpDir := t.TempDir()
+	t.Setenv("JUNE_HOME", tmpDir)
+
+	repoDir := filepath.Join(tmpDir, "repo")
+	os.MkdirAll(repoDir, 0755)
+
+	// Save current dir
+	origDir, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(origDir) })
+
+	os.Chdir(repoDir)
+	exec.Command("git", "init").Run()
+	exec.Command("git", "checkout", "-b", "main").Run()
+
+	return repoDir
+}
+
+func TestTaskCreateSingle(t *testing.T) {
+	setupTestRepo(t)
+
+	cmd := newTaskCmd()
+	cmd.SetArgs([]string{"create", "Test task"})
+
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	output := stdout.String()
+	// Should output task ID like "t-a3f8b"
+	pattern := regexp.MustCompile(`t-[a-f0-9]{5}`)
+	if !pattern.MatchString(output) {
+		t.Errorf("Output %q doesn't contain task ID", output)
+	}
+}
+
+func TestTaskCreateWithParent(t *testing.T) {
+	setupTestRepo(t)
+
+	// Create parent first
+	cmd := newTaskCmd()
+	cmd.SetArgs([]string{"create", "Parent task"})
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.Execute()
+
+	parentID := strings.TrimSpace(stdout.String())
+
+	// Create child
+	cmd = newTaskCmd()
+	cmd.SetArgs([]string{"create", "Child task", "--parent", parentID})
+	stdout.Reset()
+	cmd.SetOut(&stdout)
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	childID := strings.TrimSpace(stdout.String())
+	if childID == parentID {
+		t.Error("Child should have different ID than parent")
+	}
+}
+
+func TestTaskCreateMultiple(t *testing.T) {
+	setupTestRepo(t)
+
+	cmd := newTaskCmd()
+	cmd.SetArgs([]string{"create", "Task 1", "Task 2", "Task 3"})
+
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) != 3 {
+		t.Errorf("Expected 3 task IDs, got %d", len(lines))
+	}
+}
+
+func TestTaskListRoot(t *testing.T) {
+	setupTestRepo(t)
+
+	// Create tasks
+	cmd := newTaskCmd()
+	cmd.SetArgs([]string{"create", "Task 1"})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.Execute()
+
+	cmd = newTaskCmd()
+	cmd.SetArgs([]string{"create", "Task 2"})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.Execute()
+
+	// List root tasks
+	cmd = newTaskCmd()
+	cmd.SetArgs([]string{"list"})
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "Task 1") || !strings.Contains(output, "Task 2") {
+		t.Errorf("List output should contain both tasks: %s", output)
+	}
+}
+
+func TestTaskListSpecific(t *testing.T) {
+	setupTestRepo(t)
+
+	// Create parent
+	cmd := newTaskCmd()
+	cmd.SetArgs([]string{"create", "Parent task"})
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.Execute()
+	parentID := strings.TrimSpace(stdout.String())
+
+	// Create children
+	cmd = newTaskCmd()
+	cmd.SetArgs([]string{"create", "Child 1", "Child 2", "--parent", parentID})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.Execute()
+
+	// List specific task
+	cmd = newTaskCmd()
+	cmd.SetArgs([]string{"list", parentID})
+	stdout.Reset()
+	cmd.SetOut(&stdout)
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "Parent task") {
+		t.Errorf("Should show task title: %s", output)
+	}
+	if !strings.Contains(output, "Child 1") || !strings.Contains(output, "Child 2") {
+		t.Errorf("Should show children: %s", output)
+	}
+}
+
+func TestTaskUpdateStatus(t *testing.T) {
+	setupTestRepo(t)
+
+	// Create task
+	cmd := newTaskCmd()
+	cmd.SetArgs([]string{"create", "Test task"})
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.Execute()
+	taskID := strings.TrimSpace(stdout.String())
+
+	// Update status
+	cmd = newTaskCmd()
+	cmd.SetArgs([]string{"update", taskID, "--status", "in_progress"})
+	cmd.SetOut(&bytes.Buffer{})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	// Verify via list
+	cmd = newTaskCmd()
+	cmd.SetArgs([]string{"list", taskID})
+	stdout.Reset()
+	cmd.SetOut(&stdout)
+	cmd.Execute()
+
+	if !strings.Contains(stdout.String(), "[in_progress]") {
+		t.Errorf("Status not updated: %s", stdout.String())
+	}
+}
+
+func TestTaskUpdateNote(t *testing.T) {
+	setupTestRepo(t)
+
+	cmd := newTaskCmd()
+	cmd.SetArgs([]string{"create", "Test task"})
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.Execute()
+	taskID := strings.TrimSpace(stdout.String())
+
+	// Update note
+	cmd = newTaskCmd()
+	cmd.SetArgs([]string{"update", taskID, "--note", "Important note"})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.Execute()
+
+	// Verify
+	cmd = newTaskCmd()
+	cmd.SetArgs([]string{"list", taskID})
+	stdout.Reset()
+	cmd.SetOut(&stdout)
+	cmd.Execute()
+
+	if !strings.Contains(stdout.String(), "Important note") {
+		t.Errorf("Note not shown: %s", stdout.String())
+	}
+}
+
+func TestTaskDelete(t *testing.T) {
+	setupTestRepo(t)
+
+	// Create task
+	cmd := newTaskCmd()
+	cmd.SetArgs([]string{"create", "Test task"})
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.Execute()
+	taskID := strings.TrimSpace(stdout.String())
+
+	// Delete task
+	cmd = newTaskCmd()
+	cmd.SetArgs([]string{"delete", taskID})
+	cmd.SetOut(&bytes.Buffer{})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	// Verify not in list
+	cmd = newTaskCmd()
+	cmd.SetArgs([]string{"list"})
+	stdout.Reset()
+	cmd.SetOut(&stdout)
+	cmd.Execute()
+
+	if strings.Contains(stdout.String(), taskID) {
+		t.Errorf("Deleted task still appears in list")
+	}
+}
+
+func TestTaskListJSON(t *testing.T) {
+	setupTestRepo(t)
+
+	// Create task
+	cmd := newTaskCmd()
+	cmd.SetArgs([]string{"create", "Test task"})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.Execute()
+
+	// List with JSON
+	cmd = newTaskCmd()
+	cmd.SetArgs([]string{"list", "--json"})
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.Execute()
+
+	// Should be valid JSON array
+	var tasks []map[string]any
+	err := json.Unmarshal(stdout.Bytes(), &tasks)
+	if err != nil {
+		t.Fatalf("Invalid JSON: %v\nOutput: %s", err, stdout.String())
+	}
+
+	if len(tasks) != 1 {
+		t.Errorf("Expected 1 task, got %d", len(tasks))
+	}
+}
+
+func TestTaskCreateJSON(t *testing.T) {
+	setupTestRepo(t)
+
+	cmd := newTaskCmd()
+	cmd.SetArgs([]string{"create", "Test task", "--json"})
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.Execute()
+
+	var result map[string]string
+	err := json.Unmarshal(stdout.Bytes(), &result)
+	if err != nil {
+		t.Fatalf("Invalid JSON: %v", err)
+	}
+
+	if result["id"] == "" {
+		t.Error("Expected id in JSON output")
+	}
+}
