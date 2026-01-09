@@ -183,9 +183,10 @@ func TestSpawnCmdFlagDefaults(t *testing.T) {
 
 func TestSpawnCmdFlagParsing(t *testing.T) {
 	tests := []struct {
-		name    string
-		args    []string
-		wantErr bool
+		name          string
+		args          []string
+		wantErr       bool
+		runValidation bool // if true, let RunE execute to test validation logic
 	}{
 		{
 			name:    "valid args with all flags",
@@ -223,9 +224,10 @@ func TestSpawnCmdFlagParsing(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "gemini sandbox with explicit value errors",
-			args:    []string{"gemini", "task", "--sandbox=read-only"},
-			wantErr: true,
+			name:          "gemini sandbox with explicit value errors",
+			args:          []string{"gemini", "task", "--sandbox=read-only"},
+			wantErr:       true,
+			runValidation: true,
 		},
 	}
 
@@ -234,13 +236,9 @@ func TestSpawnCmdFlagParsing(t *testing.T) {
 			cmd := newSpawnCmd()
 			cmd.SetArgs(tt.args)
 
-			// For tests that check validation errors before spawn execution,
-			// we need to let RunE run. For others, disable to avoid spawning.
-			if tt.name == "gemini sandbox with explicit value errors" {
-				// Let the real RunE run to hit validation error
-				// It will error before trying to spawn
-			} else {
-				// Disable RunE to avoid actual execution
+			// For tests that check validation errors, let RunE execute.
+			// For others, disable to avoid actually spawning agents.
+			if !tt.runValidation {
 				cmd.RunE = func(c *cobra.Command, args []string) error { return nil }
 			}
 
