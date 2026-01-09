@@ -553,6 +553,58 @@ func TestMigration_AddsTypeColumn(t *testing.T) {
 	}
 }
 
+func TestMigrationAddsTasksTable(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	// Create DB with only agents table (simulating old schema)
+	oldDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	_, err = oldDB.Exec(`
+		CREATE TABLE agents (
+			name TEXT PRIMARY KEY,
+			ulid TEXT,
+			session_file TEXT,
+			cursor INTEGER DEFAULT 0,
+			pid INTEGER,
+			spawned_at TEXT,
+			repo_path TEXT DEFAULT '',
+			branch TEXT DEFAULT '',
+			type TEXT DEFAULT 'codex'
+		)
+	`)
+	if err != nil {
+		t.Fatalf("Create agents table failed: %v", err)
+	}
+	oldDB.Close()
+
+	// Open with our DB package (should migrate)
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open with migration failed: %v", err)
+	}
+	defer database.Close()
+
+	// Verify tasks table exists
+	rows, err := database.Query("PRAGMA table_info(tasks)")
+	if err != nil {
+		t.Fatalf("Query pragma failed: %v", err)
+	}
+	defer rows.Close()
+
+	hasTasksTable := false
+	for rows.Next() {
+		hasTasksTable = true
+		break
+	}
+
+	if !hasTasksTable {
+		t.Error("tasks table not created during migration")
+	}
+}
+
 func TestMigration_PartialMigration_AddsMissingBranchColumn(t *testing.T) {
 	// Create a DB with repo_path but NOT branch (partial migration scenario)
 	tmpDir := t.TempDir()
