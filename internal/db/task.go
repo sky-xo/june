@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -69,4 +70,50 @@ func (d *DB) GetTask(id string) (*Task, error) {
 	}
 
 	return &t, nil
+}
+
+// TaskUpdate holds optional fields for updating a task
+type TaskUpdate struct {
+	Title  *string
+	Status *string
+	Notes  *string
+}
+
+// UpdateTask updates specified fields of a task
+func (d *DB) UpdateTask(id string, update TaskUpdate) error {
+	// Build dynamic query based on which fields are set
+	setParts := []string{"updated_at = ?"}
+	args := []any{time.Now().Format(time.RFC3339)}
+
+	if update.Title != nil {
+		setParts = append(setParts, "title = ?")
+		args = append(args, *update.Title)
+	}
+	if update.Status != nil {
+		setParts = append(setParts, "status = ?")
+		args = append(args, *update.Status)
+	}
+	if update.Notes != nil {
+		setParts = append(setParts, "notes = ?")
+		args = append(args, *update.Notes)
+	}
+
+	args = append(args, id)
+	query := fmt.Sprintf("UPDATE tasks SET %s WHERE id = ? AND deleted_at IS NULL",
+		strings.Join(setParts, ", "))
+
+	result, err := d.Exec(query, args...)
+	if err != nil {
+		return fmt.Errorf("update task: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
+	if rows == 0 {
+		return ErrTaskNotFound
+	}
+
+	return nil
 }

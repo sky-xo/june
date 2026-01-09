@@ -93,3 +93,80 @@ func TestCreateTaskWithParent(t *testing.T) {
 		t.Errorf("ParentID = %v, want %q", got.ParentID, "t-parent")
 	}
 }
+
+func TestUpdateTask(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	// Create initial task
+	task := Task{
+		ID:        "t-b2c3d",
+		Title:     "Original title",
+		Status:    "open",
+		RepoPath:  "/home/user/myapp",
+		Branch:    "main",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	if err := db.CreateTask(task); err != nil {
+		t.Fatalf("CreateTask failed: %v", err)
+	}
+
+	// Update status and notes
+	newStatus := "in_progress"
+	newNotes := "Started working"
+	err := db.UpdateTask("t-b2c3d", TaskUpdate{
+		Status: &newStatus,
+		Notes:  &newNotes,
+	})
+	if err != nil {
+		t.Fatalf("UpdateTask failed: %v", err)
+	}
+
+	// Verify
+	got, _ := db.GetTask("t-b2c3d")
+	if got.Status != "in_progress" {
+		t.Errorf("Status = %q, want %q", got.Status, "in_progress")
+	}
+	if got.Notes == nil || *got.Notes != "Started working" {
+		t.Errorf("Notes = %v, want %q", got.Notes, "Started working")
+	}
+}
+
+func TestUpdateTaskTitle(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	task := Task{
+		ID:        "t-c3d4e",
+		Title:     "Original",
+		Status:    "open",
+		RepoPath:  "/home/user/myapp",
+		Branch:    "main",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	db.CreateTask(task)
+
+	newTitle := "Updated title"
+	err := db.UpdateTask("t-c3d4e", TaskUpdate{Title: &newTitle})
+	if err != nil {
+		t.Fatalf("UpdateTask failed: %v", err)
+	}
+
+	got, _ := db.GetTask("t-c3d4e")
+	if got.Title != "Updated title" {
+		t.Errorf("Title = %q, want %q", got.Title, "Updated title")
+	}
+}
+
+func TestUpdateTaskNotFound(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	newStatus := "closed"
+	err := db.UpdateTask("t-nonexistent", TaskUpdate{Status: &newStatus})
+	if err != ErrTaskNotFound {
+		t.Errorf("Expected ErrTaskNotFound, got: %v", err)
+	}
+}
