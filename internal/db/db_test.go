@@ -256,6 +256,50 @@ func TestMigration_AddsNewColumns(t *testing.T) {
 	}
 }
 
+func TestTasksTableExists(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	// Query pragma to verify table structure
+	// Note: DB embeds *sql.DB, so methods are promoted directly
+	rows, err := db.Query("PRAGMA table_info(tasks)")
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+	defer rows.Close()
+
+	columns := make(map[string]string)
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull, pk int
+		var dfltValue any
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dfltValue, &pk); err != nil {
+			t.Fatalf("Scan failed: %v", err)
+		}
+		columns[name] = typ
+	}
+
+	expected := map[string]string{
+		"id":         "TEXT",
+		"parent_id":  "TEXT",
+		"title":      "TEXT",
+		"status":     "TEXT",
+		"notes":      "TEXT",
+		"created_at": "TEXT",
+		"updated_at": "TEXT",
+		"deleted_at": "TEXT",
+		"repo_path":  "TEXT",
+		"branch":     "TEXT",
+	}
+
+	for col, typ := range expected {
+		if columns[col] != typ {
+			t.Errorf("Column %s: got type %q, want %q", col, columns[col], typ)
+		}
+	}
+}
+
 func openTestDB(t *testing.T) *DB {
 	t.Helper()
 	tmpDir := t.TempDir()

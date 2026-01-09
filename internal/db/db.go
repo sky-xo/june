@@ -67,6 +67,24 @@ CREATE TABLE IF NOT EXISTS agents (
 	branch TEXT DEFAULT '',
 	type TEXT DEFAULT 'codex'
 );
+
+CREATE TABLE IF NOT EXISTS tasks (
+	id TEXT PRIMARY KEY,
+	parent_id TEXT,
+	title TEXT NOT NULL,
+	status TEXT NOT NULL DEFAULT 'open',
+	notes TEXT,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	deleted_at TEXT,
+	repo_path TEXT NOT NULL,
+	branch TEXT NOT NULL,
+	FOREIGN KEY (parent_id) REFERENCES tasks(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_scope ON tasks(repo_path, branch);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 `
 
 // DB wraps a SQLite database connection
