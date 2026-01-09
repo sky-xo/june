@@ -26,6 +26,10 @@ var ErrTaskNotFound = fmt.Errorf("task not found")
 
 // CreateTask inserts a new task into the database
 func (d *DB) CreateTask(t Task) error {
+	if strings.TrimSpace(t.Title) == "" {
+		return fmt.Errorf("title cannot be empty")
+	}
+
 	_, err := d.Exec(`
 		INSERT INTO tasks (id, parent_id, title, status, notes, created_at, updated_at, deleted_at, repo_path, branch)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -62,10 +66,19 @@ func (d *DB) GetTask(id string) (*Task, error) {
 
 	t.ParentID = parentID
 	t.Notes = notes
-	t.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	t.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	t.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
+	if err != nil {
+		return nil, fmt.Errorf("parse created_at: %w", err)
+	}
+	t.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("parse updated_at: %w", err)
+	}
 	if deletedAt != nil {
-		dt, _ := time.Parse(time.RFC3339, *deletedAt)
+		dt, err := time.Parse(time.RFC3339, *deletedAt)
+		if err != nil {
+			return nil, fmt.Errorf("parse deleted_at: %w", err)
+		}
 		t.DeletedAt = &dt
 	}
 
@@ -180,8 +193,15 @@ func (d *DB) DeleteTask(id string) error {
 		return ErrTaskNotFound
 	}
 
+	// Begin transaction
+	tx, err := d.Begin()
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback() // No-op if committed
+
 	// Soft delete children first (recursive via CTE)
-	_, err = d.Exec(`
+	_, err = tx.Exec(`
 		WITH RECURSIVE descendants AS (
 			SELECT id FROM tasks WHERE parent_id = ?
 			UNION ALL
@@ -196,14 +216,21 @@ func (d *DB) DeleteTask(id string) error {
 	}
 
 	// Soft delete the task itself
-	result, err := d.Exec(`UPDATE tasks SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`, now, id)
+	result, err := tx.Exec(`UPDATE tasks SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`, now, id)
 	if err != nil {
 		return fmt.Errorf("delete task: %w", err)
 	}
 
-	rows, _ := result.RowsAffected()
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
 	if rows == 0 {
 		return ErrTaskNotFound
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
 	}
 
 	return nil
@@ -225,10 +252,19 @@ func scanTasks(rows *sql.Rows) ([]Task, error) {
 
 		t.ParentID = parentID
 		t.Notes = notes
-		t.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		t.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+		t.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
+		if err != nil {
+			return nil, fmt.Errorf("parse created_at: %w", err)
+		}
+		t.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("parse updated_at: %w", err)
+		}
 		if deletedAt != nil {
-			dt, _ := time.Parse(time.RFC3339, *deletedAt)
+			dt, err := time.Parse(time.RFC3339, *deletedAt)
+			if err != nil {
+				return nil, fmt.Errorf("parse deleted_at: %w", err)
+			}
 			t.DeletedAt = &dt
 		}
 

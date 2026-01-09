@@ -112,9 +112,17 @@ func runTaskCreate(cmd *cobra.Command, args []string, parentID string, outputJSO
 	// Validate parent exists if specified
 	var parentPtr *string
 	if parentID != "" {
-		_, err := database.GetTask(parentID)
+		parentTask, err := database.GetTask(parentID)
 		if err != nil {
 			return fmt.Errorf("parent task %q not found", parentID)
+		}
+		// Check parent is not deleted
+		if parentTask.DeletedAt != nil {
+			return fmt.Errorf("parent task %q is deleted", parentID)
+		}
+		// Check parent is in same scope
+		if parentTask.RepoPath != repoPath || parentTask.Branch != branch {
+			return fmt.Errorf("parent task %q is in a different scope", parentID)
 		}
 		parentPtr = &parentID
 	}
@@ -198,7 +206,10 @@ func listRootTasks(database *db.DB, repoPath, branch string, out io.Writer, asJS
 		}
 		output := make([]taskOutput, len(tasks))
 		for i, t := range tasks {
-			childCount, _ := database.CountChildren(t.ID)
+			childCount, err := database.CountChildren(t.ID)
+			if err != nil {
+				return fmt.Errorf("count children for %s: %w", t.ID, err)
+			}
 			output[i] = taskOutput{
 				ID:       t.ID,
 				Title:    t.Title,
@@ -216,7 +227,10 @@ func listRootTasks(database *db.DB, repoPath, branch string, out io.Writer, asJS
 	}
 
 	for _, t := range tasks {
-		childCount, _ := database.CountChildren(t.ID)
+		childCount, err := database.CountChildren(t.ID)
+		if err != nil {
+			return fmt.Errorf("count children for %s: %w", t.ID, err)
+		}
 		childSuffix := ""
 		if childCount > 0 {
 			childSuffix = fmt.Sprintf("  (%d children)", childCount)

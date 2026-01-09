@@ -10,7 +10,10 @@ import (
 )
 
 func TestGenerateTaskID(t *testing.T) {
-	id := generateTaskID()
+	id, err := generateTaskID()
+	if err != nil {
+		t.Fatalf("generateTaskID failed: %v", err)
+	}
 
 	// Must match pattern: t-[5 hex chars]
 	pattern := regexp.MustCompile(`^t-[a-f0-9]{5}$`)
@@ -23,7 +26,10 @@ func TestGenerateTaskIDUniqueness(t *testing.T) {
 	// Generate multiple IDs - should all be unique
 	seen := make(map[string]bool)
 	for i := 0; i < 100; i++ {
-		id := generateTaskID()
+		id, err := generateTaskID()
+		if err != nil {
+			t.Fatalf("generateTaskID failed: %v", err)
+		}
 		if seen[id] {
 			t.Errorf("Duplicate ID generated: %s", id)
 		}
@@ -66,10 +72,12 @@ func TestGenerateUniqueTaskIDRetriesOnCollision(t *testing.T) {
 
 	// Create a task with a known ID
 	now := time.Now()
-	database.CreateTask(db.Task{
+	if err := database.CreateTask(db.Task{
 		ID: "t-12345", Title: "Existing", Status: "open",
 		RepoPath: "/app", Branch: "main", CreatedAt: now, UpdatedAt: now,
-	})
+	}); err != nil {
+		t.Fatalf("CreateTask failed: %v", err)
+	}
 
 	// Generate new ID - should not collide with existing
 	id, err := generateUniqueTaskID(database)

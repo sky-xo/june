@@ -48,6 +48,35 @@ func TestGetTaskNotFound(t *testing.T) {
 	}
 }
 
+func TestCreateTaskEmptyTitle(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	// Test empty title
+	task := Task{
+		ID:        "t-empty1",
+		Title:     "",
+		Status:    "open",
+		RepoPath:  "/home/user/myapp",
+		Branch:    "main",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	err := db.CreateTask(task)
+	if err == nil {
+		t.Error("Expected error for empty title, got nil")
+	}
+
+	// Test whitespace-only title
+	task.ID = "t-empty2"
+	task.Title = "   "
+	err = db.CreateTask(task)
+	if err == nil {
+		t.Error("Expected error for whitespace-only title, got nil")
+	}
+}
+
 func TestCreateTaskWithParent(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
@@ -301,10 +330,27 @@ func TestDeleteTaskCascadesToChildren(t *testing.T) {
 		t.Fatalf("DeleteTask failed: %v", err)
 	}
 
-	// Children should also be deleted
+	// Children should also be deleted (not in list)
 	children, _ := db.ListChildTasks("t-parent")
 	if len(children) != 0 {
 		t.Errorf("Children still exist after parent delete: %d", len(children))
+	}
+
+	// Verify children have DeletedAt set
+	child1, err := db.GetTask("t-child1")
+	if err != nil {
+		t.Fatalf("GetTask child1 failed: %v", err)
+	}
+	if child1.DeletedAt == nil {
+		t.Error("child1 DeletedAt should be set")
+	}
+
+	child2, err := db.GetTask("t-child2")
+	if err != nil {
+		t.Fatalf("GetTask child2 failed: %v", err)
+	}
+	if child2.DeletedAt == nil {
+		t.Error("child2 DeletedAt should be set")
 	}
 }
 

@@ -37,13 +37,21 @@ func setupTestRepo(t *testing.T) string {
 	t.Setenv("JUNE_HOME", tmpDir)
 
 	repoDir := filepath.Join(tmpDir, "repo")
-	os.MkdirAll(repoDir, 0755)
+	if err := os.MkdirAll(repoDir, 0755); err != nil {
+		t.Fatalf("MkdirAll failed: %v", err)
+	}
 
-	// Save current dir
-	origDir, _ := os.Getwd()
+	// Save current dir before changing
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd failed: %v", err)
+	}
+	// Register cleanup before chdir so it runs after the test
 	t.Cleanup(func() { os.Chdir(origDir) })
 
-	os.Chdir(repoDir)
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("Chdir failed: %v", err)
+	}
 	exec.Command("git", "init").Run()
 	exec.Command("git", "checkout", "-b", "main").Run()
 
