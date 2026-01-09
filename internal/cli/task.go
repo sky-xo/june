@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -247,6 +248,11 @@ func listSpecificTask(database *db.DB, taskID string, out io.Writer, asJSON bool
 		return fmt.Errorf("task %q not found", taskID)
 	}
 
+	// Don't show deleted tasks
+	if task.DeletedAt != nil {
+		return fmt.Errorf("task %q not found", taskID)
+	}
+
 	children, err := database.ListChildTasks(taskID)
 	if err != nil {
 		return fmt.Errorf("list children: %w", err)
@@ -342,7 +348,7 @@ func runTaskUpdate(cmd *cobra.Command, args []string, status, note, title string
 	// Perform update
 	err = database.UpdateTask(taskID, update)
 	if err != nil {
-		if err == db.ErrTaskNotFound {
+		if errors.Is(err, db.ErrTaskNotFound) {
 			return fmt.Errorf("task %q not found", taskID)
 		}
 		return fmt.Errorf("update task: %w", err)
@@ -364,7 +370,7 @@ func runTaskDelete(cmd *cobra.Command, args []string) error {
 	// Delete task (soft delete with cascade)
 	err = database.DeleteTask(taskID)
 	if err != nil {
-		if err == db.ErrTaskNotFound {
+		if errors.Is(err, db.ErrTaskNotFound) {
 			return fmt.Errorf("task %q not found", taskID)
 		}
 		return fmt.Errorf("delete task: %w", err)

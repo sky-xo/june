@@ -291,6 +291,38 @@ func TestTaskDelete(t *testing.T) {
 	}
 }
 
+func TestTaskListDeletedByID(t *testing.T) {
+	setupTestRepo(t)
+
+	// Create task
+	cmd := newTaskCmd()
+	cmd.SetArgs([]string{"create", "Test task"})
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.Execute()
+	taskID := strings.TrimSpace(stdout.String())
+
+	// Delete task
+	cmd = newTaskCmd()
+	cmd.SetArgs([]string{"delete", taskID})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.Execute()
+
+	// Try to list the deleted task by ID - should fail
+	cmd = newTaskCmd()
+	cmd.SetArgs([]string{"list", taskID})
+	stdout.Reset()
+	cmd.SetOut(&stdout)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Error("Expected error when listing deleted task by ID")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("Expected 'not found' error, got: %v", err)
+	}
+}
+
 func TestTaskListJSON(t *testing.T) {
 	setupTestRepo(t)
 
