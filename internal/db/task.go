@@ -117,3 +117,80 @@ func (d *DB) UpdateTask(id string, update TaskUpdate) error {
 
 	return nil
 }
+
+// ListRootTasks returns all non-deleted root tasks (no parent) for a scope
+func (d *DB) ListRootTasks(repoPath, branch string) ([]Task, error) {
+	rows, err := d.Query(`
+		SELECT id, parent_id, title, status, notes, created_at, updated_at, deleted_at, repo_path, branch
+		FROM tasks
+		WHERE parent_id IS NULL
+		  AND deleted_at IS NULL
+		  AND repo_path = ?
+		  AND branch = ?
+		ORDER BY created_at DESC`,
+		repoPath, branch)
+	if err != nil {
+		return nil, fmt.Errorf("query root tasks: %w", err)
+	}
+	defer rows.Close()
+
+	return scanTasks(rows)
+}
+
+// ListChildTasks returns all non-deleted children of a task
+func (d *DB) ListChildTasks(parentID string) ([]Task, error) {
+	rows, err := d.Query(`
+		SELECT id, parent_id, title, status, notes, created_at, updated_at, deleted_at, repo_path, branch
+		FROM tasks
+		WHERE parent_id = ?
+		  AND deleted_at IS NULL
+		ORDER BY created_at ASC`,
+		parentID)
+	if err != nil {
+		return nil, fmt.Errorf("query child tasks: %w", err)
+	}
+	defer rows.Close()
+
+	return scanTasks(rows)
+}
+
+// CountChildren returns the number of non-deleted children for a task
+func (d *DB) CountChildren(parentID string) (int, error) {
+	var count int
+	err := d.QueryRow(`
+		SELECT COUNT(*) FROM tasks
+		WHERE parent_id = ? AND deleted_at IS NULL`,
+		parentID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count children: %w", err)
+	}
+	return count, nil
+}
+
+// scanTasks converts rows to Task slice
+func scanTasks(rows *sql.Rows) ([]Task, error) {
+	var tasks []Task
+	for rows.Next() {
+		var t Task
+		var parentID, notes, deletedAt *string
+		var createdAt, updatedAt string
+
+		err := rows.Scan(&t.ID, &parentID, &t.Title, &t.Status, &notes,
+			&createdAt, &updatedAt, &deletedAt, &t.RepoPath, &t.Branch)
+		if err != nil {
+			return nil, fmt.Errorf("scan task: %w", err)
+		}
+
+		t.ParentID = parentID
+		t.Notes = notes
+		t.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+		t.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+		if deletedAt != nil {
+			dt, _ := time.Parse(time.RFC3339, *deletedAt)
+			t.DeletedAt = &dt
+		}
+
+		tasks = append(tasks, t)
+	}
+	return tasks, rows.Err()
+}

@@ -170,3 +170,88 @@ func TestUpdateTaskNotFound(t *testing.T) {
 		t.Errorf("Expected ErrTaskNotFound, got: %v", err)
 	}
 }
+
+func TestListRootTasks(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	now := time.Now()
+
+	// Create root tasks
+	db.CreateTask(Task{ID: "t-root1", Title: "Root 1", Status: "open", RepoPath: "/app", Branch: "main", CreatedAt: now, UpdatedAt: now})
+	db.CreateTask(Task{ID: "t-root2", Title: "Root 2", Status: "in_progress", RepoPath: "/app", Branch: "main", CreatedAt: now, UpdatedAt: now})
+
+	// Create child task (should not appear in root list)
+	parent := "t-root1"
+	db.CreateTask(Task{ID: "t-child1", ParentID: &parent, Title: "Child 1", Status: "open", RepoPath: "/app", Branch: "main", CreatedAt: now, UpdatedAt: now})
+
+	// Create task in different scope (should not appear)
+	db.CreateTask(Task{ID: "t-other", Title: "Other", Status: "open", RepoPath: "/other", Branch: "main", CreatedAt: now, UpdatedAt: now})
+
+	tasks, err := db.ListRootTasks("/app", "main")
+	if err != nil {
+		t.Fatalf("ListRootTasks failed: %v", err)
+	}
+
+	if len(tasks) != 2 {
+		t.Errorf("Got %d tasks, want 2", len(tasks))
+	}
+}
+
+func TestListChildTasks(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	now := time.Now()
+	parent := "t-parent"
+
+	db.CreateTask(Task{ID: "t-parent", Title: "Parent", Status: "open", RepoPath: "/app", Branch: "main", CreatedAt: now, UpdatedAt: now})
+	db.CreateTask(Task{ID: "t-child1", ParentID: &parent, Title: "Child 1", Status: "open", RepoPath: "/app", Branch: "main", CreatedAt: now, UpdatedAt: now})
+	db.CreateTask(Task{ID: "t-child2", ParentID: &parent, Title: "Child 2", Status: "closed", RepoPath: "/app", Branch: "main", CreatedAt: now, UpdatedAt: now})
+
+	tasks, err := db.ListChildTasks("t-parent")
+	if err != nil {
+		t.Fatalf("ListChildTasks failed: %v", err)
+	}
+
+	if len(tasks) != 2 {
+		t.Errorf("Got %d children, want 2", len(tasks))
+	}
+}
+
+func TestListTasksExcludesDeleted(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	now := time.Now()
+	db.CreateTask(Task{ID: "t-active", Title: "Active", Status: "open", RepoPath: "/app", Branch: "main", CreatedAt: now, UpdatedAt: now})
+
+	// Manually soft-delete a task
+	db.CreateTask(Task{ID: "t-deleted", Title: "Deleted", Status: "open", RepoPath: "/app", Branch: "main", CreatedAt: now, UpdatedAt: now})
+	db.Exec("UPDATE tasks SET deleted_at = ? WHERE id = ?", now.Format(time.RFC3339), "t-deleted")
+
+	tasks, _ := db.ListRootTasks("/app", "main")
+	if len(tasks) != 1 {
+		t.Errorf("Got %d tasks, want 1 (deleted should be excluded)", len(tasks))
+	}
+}
+
+func TestCountChildren(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	now := time.Now()
+	parent := "t-parent"
+
+	db.CreateTask(Task{ID: "t-parent", Title: "Parent", Status: "open", RepoPath: "/app", Branch: "main", CreatedAt: now, UpdatedAt: now})
+	db.CreateTask(Task{ID: "t-child1", ParentID: &parent, Title: "Child 1", Status: "open", RepoPath: "/app", Branch: "main", CreatedAt: now, UpdatedAt: now})
+	db.CreateTask(Task{ID: "t-child2", ParentID: &parent, Title: "Child 2", Status: "open", RepoPath: "/app", Branch: "main", CreatedAt: now, UpdatedAt: now})
+
+	count, err := db.CountChildren("t-parent")
+	if err != nil {
+		t.Fatalf("CountChildren failed: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("Count = %d, want 2", count)
+	}
+}
