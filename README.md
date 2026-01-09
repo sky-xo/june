@@ -58,7 +58,31 @@ Names always include a unique 4-character suffix. The `--name` flag sets a prefi
 | `--model` | Model to use (Codex: `o3`, `o4-mini`; Gemini: `gemini-2.5-pro`, etc.) |
 | `--yolo` | Auto-approve all tool calls (Gemini only) |
 
-Agent state is stored in `~/.june/june.db`.
+## Persistent Tasks
+
+Track tasks that survive context compaction:
+
+```bash
+# Create tasks
+june task create "Implement auth feature"         # Returns: t-a3f8b
+june task create "Subtask 1" --parent t-a3f8b     # Create child task
+
+# View tasks
+june task list                                     # List root tasks
+june task list t-a3f8b                             # Show task details + children
+
+# Update tasks
+june task update t-a3f8b --status in_progress     # Change status
+june task update t-a3f8b --note "WIP: auth flow"  # Add note
+june task update t-a3f8b --title "New title"      # Rename
+
+# Delete (cascades to children)
+june task delete t-a3f8b
+```
+
+Tasks are scoped to the current git repo and branch.
+
+All state is stored in `~/.june/june.db`.
 
 ## How It Works
 
