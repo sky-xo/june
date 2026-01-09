@@ -189,7 +189,7 @@ func TestSpawnCmdFlagParsing(t *testing.T) {
 	}{
 		{
 			name:    "valid args with all flags",
-			args:    []string{"codex", "task", "--name", "test", "--model", "o3", "--reasoning-effort", "high", "--max-tokens", "4096", "--sandbox", "read-only"},
+			args:    []string{"codex", "task", "--name", "test", "--model", "o3", "--reasoning-effort", "high", "--max-tokens", "4096", "--sandbox=read-only"},
 			wantErr: false,
 		},
 		{
@@ -212,14 +212,37 @@ func TestSpawnCmdFlagParsing(t *testing.T) {
 			args:    []string{"--name", "test"},
 			wantErr: true,
 		},
+		{
+			name:    "sandbox without value followed by name flag",
+			args:    []string{"codex", "task", "--sandbox", "--name", "test"},
+			wantErr: false,
+		},
+		{
+			name:    "gemini sandbox with name flag",
+			args:    []string{"gemini", "task", "--sandbox", "--name", "test"},
+			wantErr: false,
+		},
+		{
+			name:    "gemini sandbox with explicit value errors",
+			args:    []string{"gemini", "task", "--sandbox=read-only"},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cmd := newSpawnCmd()
 			cmd.SetArgs(tt.args)
-			// Disable RunE to avoid actual execution
-			cmd.RunE = func(c *cobra.Command, args []string) error { return nil }
+
+			// For tests that check validation errors before spawn execution,
+			// we need to let RunE run. For others, disable to avoid spawning.
+			if tt.name == "gemini sandbox with explicit value errors" {
+				// Let the real RunE run to hit validation error
+				// It will error before trying to spawn
+			} else {
+				// Disable RunE to avoid actual execution
+				cmd.RunE = func(c *cobra.Command, args []string) error { return nil }
+			}
 
 			err := cmd.Execute()
 			if (err != nil) != tt.wantErr {
