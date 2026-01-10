@@ -12,10 +12,20 @@
 
 ## Plugin Structure
 
+**plugin.json:**
+```json
+{
+  "name": "june",
+  "description": "Task-aware workflow skills with persistent state",
+  "version": "1.0.0"
+}
+```
+
+**Directory layout:**
 ```
 june/
 ├── .claude-plugin/
-│   └── plugin.json              # name: "june"
+│   └── plugin.json
 │
 ├── skills/                      # ASSEMBLED (committed to git)
 │   │
@@ -52,7 +62,7 @@ june/
 │   ├── tool-scout/
 │   └── webresearcher/
 │
-├── .skill-cache/                # .gitignored
+├── .skill-cache/                # add to .gitignore
 │   └── superpowers/             # cloned superpowers repo
 │
 ├── internal/                    # existing Go code
@@ -186,7 +196,7 @@ june task create "Add middleware" --parent t-a3f8 --note "Check auth flow first"
 Users clone and use directly:
 
 ```bash
-git clone https://github.com/you/june
+git clone https://github.com/sky-xo/june
 cd june && make build-skills
 claude --plugin-dir ./june
 ```
@@ -196,7 +206,7 @@ claude --plugin-dir ./june
 Create a marketplace for easier install:
 
 ```bash
-/plugin marketplace add https://github.com/you/june-marketplace
+/plugin marketplace add https://github.com/sky-xo/june-marketplace
 /plugin install june@june-marketplace
 ```
 
@@ -257,7 +267,7 @@ A hook that syncs stray TodoWrite calls to June tasks, catching cases where Clau
 - Single plugin for users to install
 - Clean `june:*` namespace
 - Control over skill versions
-- No conflicts with superpowers if user has both
+- Avoids user confusion about which skill to invoke
 
 **Why commit assembled skills/ instead of .gitignore?**
 - Users get a working plugin immediately on clone
