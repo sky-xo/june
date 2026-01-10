@@ -90,6 +90,13 @@ June is also a Claude Code plugin providing task-aware workflow skills.
 
 ### Installation
 
+**Via marketplace (recommended):**
+```
+/plugin marketplace add sky-xo/june
+/plugin install june@june
+```
+
+**For development:**
 ```bash
 git clone https://github.com/sky-xo/june
 cd june
