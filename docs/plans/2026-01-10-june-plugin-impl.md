@@ -23,29 +23,9 @@ Add to `internal/cli/task_test.go`:
 
 ```go
 func TestTaskCreateWithNote(t *testing.T) {
-	// Setup temp DB
-	tmpDir := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
-
-	// Create .june directory
-	juneDir := filepath.Join(tmpDir, ".june")
-	if err := os.MkdirAll(juneDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Need git repo for scope
-	repoDir := filepath.Join(tmpDir, "repo")
-	if err := os.MkdirAll(repoDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	origWd, _ := os.Getwd()
-	os.Chdir(repoDir)
-	defer os.Chdir(origWd)
-
-	exec.Command("git", "init").Run()
-	exec.Command("git", "checkout", "-b", "main").Run()
+	// Use setupTestRepo helper (consistent with existing tests)
+	cleanup := setupTestRepo(t)
+	defer cleanup()
 
 	cmd := newTaskCmd()
 	var out bytes.Buffer
@@ -69,7 +49,9 @@ func TestTaskCreateWithNote(t *testing.T) {
 	cmd = newTaskCmd()
 	cmd.SetOut(&out)
 	cmd.SetArgs([]string{"list", result.ID, "--json"})
-	cmd.Execute()
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Failed to list task: %v", err)
+	}
 
 	// Check output contains the note
 	if !bytes.Contains(out.Bytes(), []byte("This is a note")) {
@@ -253,40 +235,58 @@ git commit -m "feat: add plugin infrastructure for Claude Code"
 mkdir -p june-skills/{writing-plans,executing-plans,subagent-driven-development,fresheyes,review-pr-comments}
 ```
 
-**Step 2: Copy fresheyes skill (from separate repo)**
+**Step 2: Clone superpowers to .skill-cache (portable source)**
 
 ```bash
-cp /Users/glowy/code/fresheyes/skills/fresheyes/SKILL.md june-skills/fresheyes/
-cp /Users/glowy/code/fresheyes/skills/fresheyes/fresheyes-full.md june-skills/fresheyes/
-cp /Users/glowy/code/fresheyes/skills/fresheyes/fresheyes-quick.md june-skills/fresheyes/
+git clone https://github.com/obra/superpowers .skill-cache/superpowers
+cd .skill-cache/superpowers && git checkout v4.0.3 && cd ../..
 ```
 
-**Step 3: Copy review-pr-comments skill**
+**Step 3: Copy superpowers skills as base for modification**
 
 ```bash
+cp .skill-cache/superpowers/skills/writing-plans/SKILL.md june-skills/writing-plans/
+cp .skill-cache/superpowers/skills/executing-plans/SKILL.md june-skills/executing-plans/
+cp .skill-cache/superpowers/skills/subagent-driven-development/SKILL.md june-skills/subagent-driven-development/
+```
+
+**Step 4: Copy subagent-driven-development supporting files**
+
+```bash
+cp .skill-cache/superpowers/skills/subagent-driven-development/implementer-prompt.md june-skills/subagent-driven-development/
+cp .skill-cache/superpowers/skills/subagent-driven-development/spec-reviewer-prompt.md june-skills/subagent-driven-development/
+cp .skill-cache/superpowers/skills/subagent-driven-development/code-quality-reviewer-prompt.md june-skills/subagent-driven-development/
+```
+
+**Step 5: Clone fresheyes repo and copy skill**
+
+```bash
+git clone https://github.com/sky-xo/fresheyes /tmp/fresheyes-clone
+cp /tmp/fresheyes-clone/skills/fresheyes/SKILL.md june-skills/fresheyes/
+cp /tmp/fresheyes-clone/skills/fresheyes/fresheyes-full.md june-skills/fresheyes/
+cp /tmp/fresheyes-clone/skills/fresheyes/fresheyes-quick.md june-skills/fresheyes/
+rm -rf /tmp/fresheyes-clone
+```
+
+**Note:** If fresheyes repo is not yet public, copy from local path as fallback.
+
+**Step 6: Create review-pr-comments skill**
+
+The review-pr-comments skill is custom. Create it directly in june-skills/ by copying from the design doc or create fresh.
+
+```bash
+# If you have it locally:
 cp ~/.claude/skills/review-pr-comments/SKILL.md june-skills/review-pr-comments/
+
+# Otherwise, create it manually based on the skill content
 ```
 
-**Step 4: Copy superpowers skills as base for modification**
-
-```bash
-cp ~/.claude/plugins/cache/superpowers-marketplace/superpowers/4.0.3/skills/writing-plans/SKILL.md june-skills/writing-plans/
-cp ~/.claude/plugins/cache/superpowers-marketplace/superpowers/4.0.3/skills/executing-plans/SKILL.md june-skills/executing-plans/
-cp ~/.claude/plugins/cache/superpowers-marketplace/superpowers/4.0.3/skills/subagent-driven-development/SKILL.md june-skills/subagent-driven-development/
-```
-
-**Step 5: Copy subagent-driven-development supporting files**
-
-```bash
-cp ~/.claude/plugins/cache/superpowers-marketplace/superpowers/4.0.3/skills/subagent-driven-development/*.md june-skills/subagent-driven-development/
-```
-
-**Step 6: Verify all files copied**
+**Step 7: Verify all files copied**
 
 Run: `find june-skills -name "*.md" | wc -l`
-Expected: At least 8 files
+Expected: At least 10 files (3 fresheyes + 4 subagent + 1 writing + 1 executing + 1 review-pr)
 
-**Step 7: Commit**
+**Step 8: Commit**
 
 ```bash
 git add june-skills/
@@ -324,7 +324,11 @@ After saving the plan:
 
 **Step 1: Run quick fresheyes**
 
-Always run a quick fresheyes self-review (baseline sanity check).
+Always run a quick fresheyes self-review (baseline sanity check). Invoke the fresheyes skill with "quick" mode:
+
+Use the Skill tool: `skill: "june:fresheyes", args: "quick on the plan"`
+
+This runs a structured self-review checklist without spawning external agents.
 
 **Step 2: Suggest based on plan size**
 
@@ -375,6 +379,8 @@ Tasks created: t-xxxx (N children)
 
 Run `june task list t-xxxx` to see task breakdown.
 ```
+
+**Important:** The parent task ID (e.g., `t-xxxx`) must be provided to the execution skill (executing-plans or subagent-driven-development). Include it in the handoff message so the executor knows which task tree to read.
 ```
 
 **Step 4: Commit**
@@ -447,7 +453,7 @@ Change:
 
 To:
 ```
-"Read plan, extract all tasks with full text, note context. Check for existing june tasks with `june task list <parent-id> --json` or create new ones."
+"Read plan, extract all tasks with full text, note context. The parent task ID should be provided by the user or found in the plan handoff (e.g., 'Tasks created: t-xxxx'). Read tasks with `june task list <parent-id> --json`."
 ```
 
 Change:
@@ -496,7 +502,7 @@ Change:
 
 To:
 ```markdown
-4. If no concerns: Read tasks with `june task list <parent-id> --json` and proceed
+4. If no concerns: The parent task ID should be provided by the user or found in the plan handoff (e.g., 'Tasks created: t-xxxx'). Read tasks with `june task list <parent-id> --json` and proceed.
 ```
 
 **Step 3: Update Step 2 for task status**
@@ -563,7 +569,7 @@ Skills assembled: superpowers v4.0.3 + june overrides
 ls skills/ | wc -l
 ```
 
-Expected: 14 skills (all from superpowers)
+Expected: 16 skills (14 from superpowers + fresheyes + review-pr-comments)
 
 **Step 3: Verify june overrides applied**
 
