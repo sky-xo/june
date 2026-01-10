@@ -408,3 +408,38 @@ func TestTaskCreateJSON(t *testing.T) {
 		t.Error("Expected id in JSON output")
 	}
 }
+
+func TestTaskCreateWithNote(t *testing.T) {
+	setupTestRepo(t)
+
+	cmd := newTaskCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"create", "Test task", "--note", "This is a note", "--json"})
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Parse JSON output to get task ID
+	var result struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("Failed to parse JSON: %v", err)
+	}
+
+	// Verify note was set by listing the task
+	out.Reset()
+	cmd = newTaskCmd()
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"list", result.ID, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Failed to list task: %v", err)
+	}
+
+	// Check output contains the note
+	if !bytes.Contains(out.Bytes(), []byte("This is a note")) {
+		t.Errorf("Expected note in output, got: %s", out.String())
+	}
+}

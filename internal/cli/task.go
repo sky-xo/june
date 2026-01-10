@@ -30,6 +30,7 @@ func newTaskCmd() *cobra.Command {
 
 func newTaskCreateCmd() *cobra.Command {
 	var parentID string
+	var note string
 	var outputJSON bool
 
 	cmd := &cobra.Command{
@@ -37,11 +38,12 @@ func newTaskCreateCmd() *cobra.Command {
 		Short: "Create one or more tasks",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTaskCreate(cmd, args, parentID, outputJSON)
+			return runTaskCreate(cmd, args, parentID, note, outputJSON)
 		},
 	}
 
 	cmd.Flags().StringVar(&parentID, "parent", "", "Parent task ID for creating child tasks")
+	cmd.Flags().StringVar(&note, "note", "", "Set note on created task(s)")
 	cmd.Flags().BoolVar(&outputJSON, "json", false, "Output in JSON format")
 
 	return cmd
@@ -92,7 +94,7 @@ func newTaskDeleteCmd() *cobra.Command {
 	}
 }
 
-func runTaskCreate(cmd *cobra.Command, args []string, parentID string, outputJSON bool) error {
+func runTaskCreate(cmd *cobra.Command, args []string, parentID, note string, outputJSON bool) error {
 	// Get git scope
 	repoPath := scope.RepoRoot()
 	if repoPath == "" {
@@ -137,11 +139,18 @@ func runTaskCreate(cmd *cobra.Command, args []string, parentID string, outputJSO
 		if err != nil {
 			return fmt.Errorf("generate task ID: %w", err)
 		}
+
+		var notePtr *string
+		if note != "" {
+			notePtr = &note
+		}
+
 		task := db.Task{
 			ID:        id,
 			ParentID:  parentPtr,
 			Title:     title,
 			Status:    "open",
+			Notes:     notePtr,
 			RepoPath:  repoPath,
 			Branch:    branch,
 			CreatedAt: now,
